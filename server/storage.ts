@@ -23,6 +23,7 @@ import { eq, desc, sql } from "drizzle-orm";
 export interface IStorage {
   // User tokens
   getUserTokenByToken(token: string): Promise<UserToken | undefined>;
+  getAllUserTokens(): Promise<UserToken[]>;
   createUserToken(token: InsertUserToken): Promise<UserToken>;
 
   // Suppliers
@@ -59,6 +60,10 @@ export class DatabaseStorage implements IStorage {
       .from(userTokens)
       .where(eq(userTokens.token, token));
     return userToken || undefined;
+  }
+
+  async getAllUserTokens(): Promise<UserToken[]> {
+    return await db.select().from(userTokens);
   }
 
   async createUserToken(insertToken: InsertUserToken): Promise<UserToken> {

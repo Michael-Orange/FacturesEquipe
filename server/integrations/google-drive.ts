@@ -91,3 +91,89 @@ export async function downloadFileFromDrive(fileId: string): Promise<Buffer> {
   );
   return Buffer.from(response.data as ArrayBuffer);
 }
+
+export async function createFolder(folderName: string, parentFolderId: string): Promise<string> {
+  const drive = await getUncachableGoogleDriveClient();
+  
+  const fileMetadata = {
+    name: folderName,
+    mimeType: 'application/vnd.google-apps.folder',
+    parents: [parentFolderId],
+  };
+
+  const response = await drive.files.create({
+    requestBody: fileMetadata,
+    fields: 'id',
+  });
+
+  return response.data.id!;
+}
+
+export async function listFilesInFolder(folderId: string): Promise<string[]> {
+  const drive = await getUncachableGoogleDriveClient();
+  
+  const allFileIds: string[] = [];
+  let nextPageToken: string | undefined = undefined;
+  
+  do {
+    const listResponse = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'`,
+      fields: 'files(id), nextPageToken',
+      pageSize: 100,
+      pageToken: nextPageToken,
+    });
+    
+    const fileIds = listResponse.data.files?.map((file: any) => file.id!) || [];
+    allFileIds.push(...fileIds);
+    
+    nextPageToken = listResponse.data.nextPageToken || undefined;
+  } while (nextPageToken);
+
+  return allFileIds;
+}
+
+export async function moveFileToFolder(fileId: string, targetFolderId: string, currentParentId: string): Promise<void> {
+  const drive = await getUncachableGoogleDriveClient();
+  
+  await drive.files.update({
+    fileId: fileId,
+    addParents: targetFolderId,
+    removeParents: currentParentId,
+    fields: 'id, parents',
+  });
+}
+
+export async function archiveUserFiles(userFolderId: string): Promise<number> {
+  const drive = await getUncachableGoogleDriveClient();
+  
+  // List files first - skip if no files to archive
+  const fileIds = await listFilesInFolder(userFolderId);
+  
+  if (fileIds.length === 0) {
+    return 0;
+  }
+  
+  // Generate archive folder name
+  const now = new Date();
+  const year = now.getFullYear().toString().slice(-2);
+  const month = (now.getMonth() + 1).toString().padStart(2, '0');
+  const day = now.getDate().toString().padStart(2, '0');
+  const archiveFolderName = `archive_${year}${month}${day}`;
+  
+  // Check if archive folder already exists
+  const existingFolders = await drive.files.list({
+    q: `'${userFolderId}' in parents and name='${archiveFolderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id)',
+  });
+  
+  // Use existing folder or create new one
+  const archiveFolderId = existingFolders.data.files?.[0]?.id || 
+    await createFolder(archiveFolderName, userFolderId);
+  
+  // Move all files to archive
+  for (const fileId of fileIds) {
+    await moveFileToFolder(fileId, archiveFolderId, userFolderId);
+  }
+  
+  return fileIds.length;
+}

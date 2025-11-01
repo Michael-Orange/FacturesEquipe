@@ -4,7 +4,7 @@ import multer from "multer";
 import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 import { storage } from "./storage";
-import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive } from "./integrations/google-drive";
+import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
 import { insertInvoiceSchema, insertSupplierSchema } from "@shared/schema";
 import { format } from "date-fns";
@@ -515,22 +515,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin reset database (protected)
   app.post("/api/admin/reset-database", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
-      const invoices = await storage.getAllInvoices();
+      // Get all users
+      const users = await storage.getAllUserTokens();
 
-      // Delete all files from Google Drive
-      for (const invoice of invoices) {
+      // Archive files for each user in Google Drive instead of deleting
+      // If archiving fails for any user, abort the reset to prevent data loss
+      let totalArchived = 0;
+      const archiveErrors: string[] = [];
+      
+      for (const user of users) {
         try {
-          await deleteFileFromDrive(invoice.driveFileId);
+          const archivedCount = await archiveUserFiles(user.driveFolderId);
+          totalArchived += archivedCount;
+          console.log(`Archived ${archivedCount} files for user ${user.name}`);
         } catch (driveError) {
-          console.error(`Error deleting file ${invoice.driveFileId}:`, driveError);
-          // Continue even if some deletions fail
+          console.error(`Error archiving files for user ${user.name}:`, driveError);
+          archiveErrors.push(`${user.name}: ${driveError instanceof Error ? driveError.message : 'Unknown error'}`);
         }
       }
 
-      // Delete all invoices from database
+      // If any archiving failed, abort without deleting database records
+      if (archiveErrors.length > 0) {
+        return res.status(500).json({ 
+          message: "Failed to archive files in Google Drive. Database was not reset to prevent data loss.",
+          errors: archiveErrors
+        });
+      }
+
+      // Only delete from database if all files were successfully archived
       await storage.deleteAllInvoices();
 
-      res.json({ message: "Database reset successfully" });
+      res.json({ 
+        message: "Database reset successfully", 
+        archivedFiles: totalArchived 
+      });
     } catch (error) {
       console.error("Error resetting database:", error);
       res.status(500).json({ message: "Internal server error" });
