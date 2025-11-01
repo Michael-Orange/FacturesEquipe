@@ -56,7 +56,7 @@ const invoiceFormSchema = z.object({
 }).refine(
   (data) => {
     // Montant HT requis si TVA = Oui ET catégorie != Restauration
-    if (data.vatApplicable === "true" && data.category !== "Restauration" && (!data.amountHT || data.amountHT.trim() === "")) {
+    if (data.vatApplicable === "true" && data.category !== "Restauration, boissons et petits achats alimentaires" && (!data.amountHT || data.amountHT.trim() === "")) {
       return false;
     }
     return true;
@@ -70,11 +70,12 @@ const invoiceFormSchema = z.object({
 export type InvoiceFormData = z.infer<typeof invoiceFormSchema>;
 
 const CATEGORIES = [
-  "Restauration",
+  "Restauration, boissons et petits achats alimentaires",
   "Essence",
   "Fourniture Matériaux",
   "Achats Prestas",
   "Transport de matériel",
+  "Transport de personnes",
   "Hébergement",
   "Telephone/Internet",
   "Autre",
@@ -119,7 +120,7 @@ export function InvoiceForm({
 
   // Validation en temps réel du Montant HT
   useEffect(() => {
-    if (vatApplicable === "true" && category !== "Restauration" && amountTTC && amountHT) {
+    if (vatApplicable === "true" && category !== "Restauration, boissons et petits achats alimentaires" && amountTTC && amountHT) {
       const ttc = parseFloat(amountTTC);
       const ht = parseFloat(amountHT);
       
@@ -311,7 +312,7 @@ export function InvoiceForm({
         )}
       </div>
 
-      {category !== "Restauration" && (
+      {category !== "Restauration, boissons et petits achats alimentaires" && (
         <div className="space-y-4">
           <Label className="text-base font-medium">TVA applicable</Label>
           <RadioGroup
@@ -335,7 +336,7 @@ export function InvoiceForm({
         </div>
       )}
 
-      {vatApplicable === "true" && category !== "Restauration" && (
+      {vatApplicable === "true" && category !== "Restauration, boissons et petits achats alimentaires" && (
         <div className="space-y-2">
           <Label htmlFor="amountHT" className="text-base font-medium">
             Montant HT (FCFA) *

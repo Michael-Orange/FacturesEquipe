@@ -103,7 +103,7 @@ export default function InvoiceEdit() {
   // Validation en temps réel du Montant HT
   const lastToastTime = useRef<number>(0);
   useEffect(() => {
-    if (formData.vatApplicable && formData.category !== "Restauration" && formData.amountTTC && formData.amountHT) {
+    if (formData.vatApplicable && formData.category !== "Restauration, boissons et petits achats alimentaires" && formData.amountTTC && formData.amountHT) {
       const ttc = parseFloat(formData.amountTTC);
       const ht = parseFloat(formData.amountHT);
       
@@ -285,7 +285,7 @@ export default function InvoiceEdit() {
                   <SelectValue placeholder="Sélectionner une catégorie..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {["Restauration", "Essence", "Fourniture Matériaux", "Achats Prestas", "Transport de matériel", "Hébergement", "Telephone/Internet", "Autre"].map((cat) => (
+                  {["Restauration, boissons et petits achats alimentaires", "Essence", "Fourniture Matériaux", "Achats Prestas", "Transport de matériel", "Transport de personnes", "Hébergement", "Telephone/Internet", "Autre"].map((cat) => (
                     <SelectItem key={cat} value={cat} data-testid={`option-category-${cat}`}>
                       {cat}
                     </SelectItem>
@@ -309,7 +309,7 @@ export default function InvoiceEdit() {
               />
             </div>
 
-            {formData.category !== "Restauration" && (
+            {formData.category !== "Restauration, boissons et petits achats alimentaires" && (
               <div className="space-y-4">
                 <Label className="text-base font-medium">TVA applicable</Label>
                 <RadioGroup
@@ -329,7 +329,7 @@ export default function InvoiceEdit() {
               </div>
             )}
 
-            {formData.vatApplicable && formData.category !== "Restauration" && (
+            {formData.vatApplicable && formData.category !== "Restauration, boissons et petits achats alimentaires" && (
               <div className="space-y-2">
                 <Label htmlFor="amountHT" className="text-base font-medium">
                   Montant HT (FCFA) *
