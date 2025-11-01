@@ -157,12 +157,6 @@ async function seed() {
   }
 }
 
-seed()
-  .then(() => {
-    console.log("\n🎉 Seeding finished!");
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error("Fatal error:", error);
-    process.exit(1);
-  });
+export async function seedDatabase() {
+  await seed();
+}

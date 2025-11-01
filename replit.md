@@ -90,15 +90,19 @@ Preferred communication style: Simple, everyday language.
 ### Authentication & Authorization
 
 **Token-Based Access Control:**
-- Three unique URLs with embedded tokens (one per team member)
+- Three unique URLs with embedded short tokens (one per team member)
+- URL format: `/{username}_{token}` (e.g., `/michael_e9c`, `/marine_f2a`, `/fatou_b7d`)
 - No login flow - direct access via personalized URLs
-- Token validation on each request
+- Token validation on each request (both frontend and backend)
 - Admin panel uses separate password authentication
 
 **Security Approach:**
-- Tokens are cryptographically random 32-byte hex strings
+- Tokens are cryptographically random 3-character strings (randomBytes(2).toString('hex').substring(0,3))
+- Frontend validates that URL username matches token owner before allowing access
+- Backend enforces token-username binding on all invoice operations (returns 401/403 for invalid/mismatched tokens)
 - Admin password hashed with bcrypt
 - No session management required due to token-in-URL pattern
+- No hardcoded fallbacks - all access requires valid token
 
 ### External Dependencies
 
@@ -108,6 +112,10 @@ Preferred communication style: Simple, everyday language.
 - Each team member has dedicated folder via `driveFolderId`
 - Automatic access token refresh handling
 - File download proxied through backend API
+- **Automatic file naming:** Files are renamed to `YYMMDD_Supplier_Amount.extension` format
+  - Example: `251101_Replit_40000.jpg` for invoice dated Nov 1, 2025, supplier "Replit", amount €400.00
+  - Amount is converted to integer (decimal point removed) for cleaner filenames
+  - Supplier name is sanitized (removes special characters, limits length)
 
 **Resend Email Service:**
 - Sends invoice confirmation emails after successful submission
