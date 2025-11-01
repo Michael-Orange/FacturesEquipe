@@ -259,11 +259,6 @@ export default function InvoiceEdit() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8">
-        <div className="mb-4">
-          <p className="text-sm text-muted-foreground italic">
-            ℹ️ La TVA n'est pas applicable sur les frais de restaurants
-          </p>
-        </div>
         <Card className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
@@ -311,6 +306,9 @@ export default function InvoiceEdit() {
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-sm text-muted-foreground italic mt-1">
+                ℹ️ La TVA n'est pas applicable sur les frais de restaurants
+              </p>
             </div>
 
             <div className="space-y-2">
