@@ -145,6 +145,9 @@ export default function InvoiceSubmission() {
         <div className="mb-6">
           <h2 className="text-xl font-semibold mb-1">Bonjour {userData.name}</h2>
           <p className="text-muted-foreground">Soumettez vos factures facilement</p>
+          <p className="text-sm text-muted-foreground mt-2 italic">
+            ℹ️ La TVA n'est pas applicable sur les frais de restaurants
+          </p>
         </div>
 
         <div className="space-y-6">

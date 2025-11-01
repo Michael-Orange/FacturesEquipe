@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Pencil } from "lucide-react";
@@ -88,6 +88,32 @@ export default function InvoiceEdit() {
       });
     }
   }, [invoice]);
+
+  // Validation en temps réel du Montant HT
+  const lastToastTime = useRef<number>(0);
+  useEffect(() => {
+    if (formData.vatApplicable && formData.category !== "Restauration" && formData.amountTTC && formData.amountHT) {
+      const ttc = parseFloat(formData.amountTTC);
+      const ht = parseFloat(formData.amountHT);
+      
+      if (!isNaN(ttc) && !isNaN(ht) && ttc > 0) {
+        const expectedHT = ttc / 1.18;
+        const difference = Math.abs(ht - expectedHT);
+        const percentDifference = (difference / expectedHT) * 100;
+        
+        // Si différence > 2% et pas de toast récent (éviter spam)
+        const now = Date.now();
+        if (percentDifference > 2 && (now - lastToastTime.current) > 3000) {
+          lastToastTime.current = now;
+          toast({
+            title: "Vérification du montant HT",
+            description: `Le montant HT renseigné (${ht.toFixed(2)} FCFA) diffère du calcul attendu (${expectedHT.toFixed(2)} FCFA). Veuillez vérifier votre saisie.`,
+            variant: "default",
+          });
+        }
+      }
+    }
+  }, [formData.amountHT, formData.amountTTC, formData.vatApplicable, formData.category, toast]);
 
   const canUseWaveBusiness = invoice?.userName === "Michael" || invoice?.userName === "Marine";
 
@@ -191,6 +217,11 @@ export default function InvoiceEdit() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8">
+        <div className="mb-4">
+          <p className="text-sm text-muted-foreground italic">
+            ℹ️ La TVA n'est pas applicable sur les frais de restaurants
+          </p>
+        </div>
         <Card className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
@@ -275,7 +306,7 @@ export default function InvoiceEdit() {
               </div>
             )}
 
-            {formData.vatApplicable && (
+            {formData.vatApplicable && formData.category !== "Restauration" && (
               <div className="space-y-2">
                 <Label htmlFor="amountHT" className="text-base font-medium">
                   Montant HT (FCFA) *
@@ -344,7 +375,8 @@ export default function InvoiceEdit() {
               <input
                 id="file-upload"
                 type="file"
-                accept=".pdf,image/jpeg,image/jpg,image/png"
+                accept="image/*,application/pdf"
+                capture="environment"
                 onChange={handleFileChange}
                 className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
                 data-testid="input-file-upload"

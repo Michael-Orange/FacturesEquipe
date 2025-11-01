@@ -18,13 +18,15 @@ import { useToast } from "@/hooks/use-toast";
 
 interface AdminDashboardProps {
   onExportCSV: () => Promise<void>;
+  onExportAxonaut: () => Promise<void>;
   onResetDatabase: () => Promise<void>;
   onLogout: () => void;
 }
 
-export function AdminDashboard({ onExportCSV, onResetDatabase, onLogout }: AdminDashboardProps) {
+export function AdminDashboard({ onExportCSV, onExportAxonaut, onResetDatabase, onLogout }: AdminDashboardProps) {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingAxonaut, setIsExportingAxonaut] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const { toast } = useToast();
 
@@ -44,6 +46,25 @@ export function AdminDashboard({ onExportCSV, onResetDatabase, onLogout }: Admin
       });
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleExportAxonaut = async () => {
+    setIsExportingAxonaut(true);
+    try {
+      await onExportAxonaut();
+      toast({
+        title: "Export Axonaut réussi",
+        description: "Le fichier d'export Axonaut a été téléchargé",
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'exporter les données Axonaut",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingAxonaut(false);
     }
   };
 
@@ -99,7 +120,7 @@ export function AdminDashboard({ onExportCSV, onResetDatabase, onLogout }: Admin
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <Button
               onClick={handleExportCSV}
               disabled={isExporting}
@@ -108,6 +129,16 @@ export function AdminDashboard({ onExportCSV, onResetDatabase, onLogout }: Admin
             >
               <Download className="h-5 w-5 mr-2" />
               {isExporting ? "Export en cours..." : "Exporter en CSV"}
+            </Button>
+            <Button
+              onClick={handleExportAxonaut}
+              disabled={isExportingAxonaut}
+              variant="secondary"
+              className="w-full h-12"
+              data-testid="button-export-axonaut"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingAxonaut ? "Export en cours..." : "Exporter pour Axonaut"}
             </Button>
           </CardContent>
         </Card>
@@ -152,6 +183,10 @@ export function AdminDashboard({ onExportCSV, onResetDatabase, onLogout }: Admin
           <div className="flex justify-between py-2 border-b">
             <span className="text-muted-foreground">Export CSV</span>
             <span className="font-medium">Télécharge toutes les factures de tous les utilisateurs</span>
+          </div>
+          <div className="flex justify-between py-2 border-b">
+            <span className="text-muted-foreground">Export Axonaut</span>
+            <span className="font-medium">Export formaté pour import dans Axonaut</span>
           </div>
           <div className="flex justify-between py-2">
             <span className="text-muted-foreground">Réinitialisation</span>

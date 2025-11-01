@@ -59,6 +59,28 @@ export default function Admin() {
     },
   });
 
+  const exportAxonautMutation = useMutation({
+    mutationFn: async () => {
+      const token = localStorage.getItem("adminSessionToken");
+      const response = await fetch("/api/admin/export-axonaut", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) throw new Error("Erreur lors de l'export Axonaut");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `axonaut_export_${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    },
+  });
+
   const resetDatabaseMutation = useMutation({
     mutationFn: async () => {
       return await apiRequest("POST", "/api/admin/reset-database", {});
@@ -142,6 +164,7 @@ export default function Admin() {
       <main className="max-w-7xl mx-auto px-4 py-8">
         <AdminDashboard
           onExportCSV={exportCSVMutation.mutateAsync}
+          onExportAxonaut={exportAxonautMutation.mutateAsync}
           onResetDatabase={resetDatabaseMutation.mutateAsync}
           onLogout={handleLogout}
         />

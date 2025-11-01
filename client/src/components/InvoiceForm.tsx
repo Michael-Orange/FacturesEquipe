@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -55,7 +55,8 @@ const invoiceFormSchema = z.object({
   projectId: z.string().optional(),
 }).refine(
   (data) => {
-    if (data.vatApplicable === "true" && (!data.amountHT || data.amountHT.trim() === "")) {
+    // Montant HT requis si TVA = Oui ET catégorie != Restauration
+    if (data.vatApplicable === "true" && data.category !== "Restauration" && (!data.amountHT || data.amountHT.trim() === "")) {
       return false;
     }
     return true;
@@ -113,15 +114,43 @@ export function InvoiceForm({
   const category = form.watch("category");
   const vatApplicable = form.watch("vatApplicable");
   const supplierId = form.watch("supplierId");
+  const amountTTC = form.watch("amountTTC");
+  const amountHT = form.watch("amountHT");
+
+  // Validation en temps réel du Montant HT
+  useEffect(() => {
+    if (vatApplicable === "true" && category !== "Restauration" && amountTTC && amountHT) {
+      const ttc = parseFloat(amountTTC);
+      const ht = parseFloat(amountHT);
+      
+      if (!isNaN(ttc) && !isNaN(ht) && ttc > 0) {
+        const expectedHT = ttc / 1.18;
+        const difference = Math.abs(ht - expectedHT);
+        const percentDifference = (difference / expectedHT) * 100;
+        
+        // Si différence > 2%, afficher un avertissement
+        if (percentDifference > 2) {
+          toast({
+            title: "Vérification du montant HT",
+            description: `Le montant HT renseigné (${ht.toFixed(2)} FCFA) diffère du calcul attendu (${expectedHT.toFixed(2)} FCFA). Veuillez vérifier votre saisie.`,
+            variant: "default",
+          });
+        }
+      }
+    }
+  }, [amountHT, amountTTC, vatApplicable, category, toast]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const validTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
-      if (!validTypes.includes(file.type)) {
+      // Accept all image types (including HEIC/HEIF from iPhone) and PDFs
+      const isImage = file.type.startsWith("image/");
+      const isPDF = file.type === "application/pdf";
+      
+      if (!isImage && !isPDF) {
         toast({
           title: "Type de fichier non valide",
-          description: "Veuillez sélectionner un fichier PDF ou une image (JPG, PNG)",
+          description: "Veuillez sélectionner un fichier PDF ou une image",
           variant: "destructive",
         });
         return;
@@ -306,7 +335,7 @@ export function InvoiceForm({
         </div>
       )}
 
-      {vatApplicable === "true" && (
+      {vatApplicable === "true" && category !== "Restauration" && (
         <div className="space-y-2">
           <Label htmlFor="amountHT" className="text-base font-medium">
             Montant HT (FCFA) *
@@ -379,7 +408,8 @@ export function InvoiceForm({
           <input
             id="file-upload"
             type="file"
-            accept=".pdf,image/jpeg,image/jpg,image/png"
+            accept="image/*,application/pdf"
+            capture="environment"
             onChange={handleFileChange}
             className="sr-only"
             data-testid="input-file-upload"

@@ -442,6 +442,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin export Axonaut CSV (protected)
+  app.get("/api/admin/export-axonaut", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const invoices = await storage.getAllInvoices();
+
+      // Headers exactly as in the template
+      const csvHeader = "Date *;Titre *;Nom du fournisseur *;Code tiers fournisseur;Adresse - Rue du fournisseur;Adresse - Code postal;Adresse - Ville;Montant HT *;Montant TTC *;Montant TVA 20% *;Montant TVA 10% *;MontantTVA 5.5% *;Montant TTC du *;Categorie depense;Montant taxe 8.5%;Montant taxe 2.1%;Montant taxe22%;Montant taxe 11%;Montant taxe 6%;Montant taxe 3%;Montant taxe 12%;Montant taxe 21%;Montant taxe 18%; Numéro projet\n";
+      
+      const csvRows = invoices.map((inv) => {
+        const invoiceDate = format(new Date(inv.invoiceDate), "dd/MM/yyyy");
+        
+        // Titre: description ou "Facture [fournisseur]"
+        const titre = inv.description || `Facture ${inv.supplierName}`;
+        
+        // Montant HT: si TVA=Oui → amountHT, sinon → amountTTC
+        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountTTC) : inv.amountTTC;
+        
+        // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
+        const montantTaxe18 = inv.vatApplicable && inv.amountHT 
+          ? (parseFloat(inv.amountTTC) - parseFloat(inv.amountHT)).toFixed(2)
+          : "0";
+        
+        // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
+        let numeroProjet = "";
+        if (inv.projectNumber) {
+          const match = inv.projectNumber.match(/\d+$/); // Extraire les chiffres à la fin
+          numeroProjet = match ? match[0] : "";
+        }
+
+        return [
+          invoiceDate,                    // Date *
+          titre,                          // Titre *
+          inv.supplierName,               // Nom du fournisseur *
+          "",                             // Code tiers fournisseur
+          "",                             // Adresse - Rue du fournisseur
+          "",                             // Adresse - Code postal
+          "",                             // Adresse - Ville
+          montantHT,                      // Montant HT *
+          inv.amountTTC,                  // Montant TTC *
+          "0",                            // Montant TVA 20% *
+          "0",                            // Montant TVA 10% *
+          "0",                            // MontantTVA 5.5% *
+          invoiceDate,                    // Montant TTC du * (même date)
+          "",                             // Categorie depense (vide pour l'instant)
+          "",                             // Montant taxe 8.5%
+          "",                             // Montant taxe 2.1%
+          "",                             // Montant taxe22%
+          "",                             // Montant taxe 11%
+          "",                             // Montant taxe 6%
+          "",                             // Montant taxe 3%
+          "",                             // Montant taxe 12%
+          "",                             // Montant taxe 21%
+          montantTaxe18,                  // Montant taxe 18%
+          numeroProjet,                   // Numéro projet
+        ]
+          .map((field) => `"${field}"`)
+          .join(";");
+      });
+
+      const csv = csvHeader + csvRows.join("\n");
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="axonaut_export_${format(new Date(), "yyyy-MM-dd")}.csv"`);
+      res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
+    } catch (error) {
+      console.error("Error exporting Axonaut CSV:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Admin reset database (protected)
   app.post("/api/admin/reset-database", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
