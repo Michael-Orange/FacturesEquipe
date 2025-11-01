@@ -1,15 +1,353 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import multer from "multer";
+import bcrypt from "bcrypt";
 import { storage } from "./storage";
+import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive } from "./integrations/google-drive";
+import { sendInvoiceConfirmation } from "./integrations/resend";
+import { insertInvoiceSchema, insertSupplierSchema } from "@shared/schema";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  // Validate token
+  app.get("/api/validate-token/:token", async (req: Request, res: Response) => {
+    try {
+      const { token } = req.params;
+      const userToken = await storage.getUserTokenByToken(token);
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+      if (!userToken) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      res.json({
+        name: userToken.name,
+        email: userToken.email,
+      });
+    } catch (error) {
+      console.error("Error validating token:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get all suppliers
+  app.get("/api/suppliers", async (req: Request, res: Response) => {
+    try {
+      const suppliers = await storage.getAllSuppliers();
+      res.json(suppliers);
+    } catch (error) {
+      console.error("Error fetching suppliers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get recent suppliers for a user
+  app.get("/api/suppliers/recent/:userName", async (req: Request, res: Response) => {
+    try {
+      const { userName } = req.params;
+      const suppliers = await storage.getRecentSuppliersByUser(userName, 5);
+      res.json(suppliers);
+    } catch (error) {
+      console.error("Error fetching recent suppliers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get top volume suppliers
+  app.get("/api/suppliers/top-volume", async (req: Request, res: Response) => {
+    try {
+      const suppliers = await storage.getTopVolumeSuppliers(5);
+      res.json(suppliers);
+    } catch (error) {
+      console.error("Error fetching top volume suppliers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Create supplier
+  app.post("/api/suppliers", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertSupplierSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid supplier data", errors: parsed.error });
+      }
+
+      // Check if supplier already exists
+      const existing = await storage.getSupplierByName(parsed.data.name);
+      if (existing) {
+        return res.status(409).json({ message: "Supplier already exists" });
+      }
+
+      const supplier = await storage.createSupplier(parsed.data);
+      res.status(201).json(supplier);
+    } catch (error) {
+      console.error("Error creating supplier:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get all projects
+  app.get("/api/projects", async (req: Request, res: Response) => {
+    try {
+      const projects = await storage.getAllProjects();
+      res.json(projects);
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get invoices for a user
+  app.get("/api/invoices/:userName", async (req: Request, res: Response) => {
+    try {
+      const { userName } = req.params;
+      const invoices = await storage.getInvoicesByUser(userName);
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Create invoice with file upload
+  app.post("/api/invoices", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: "File is required" });
+      }
+
+      const {
+        userName,
+        invoiceDate,
+        supplierId,
+        category,
+        amountTTC,
+        vatApplicable,
+        amountHT,
+        description,
+        paymentType,
+        projectId,
+      } = req.body;
+
+      // Validate invoice data
+      const parsed = insertInvoiceSchema.safeParse({
+        userName,
+        invoiceDate,
+        supplierId,
+        category,
+        amountTTC,
+        vatApplicable: vatApplicable === "true",
+        amountHT: amountHT || null,
+        description: description || null,
+        paymentType,
+        projectId: projectId || null,
+        fileName: file.originalname,
+        filePath: "",
+        driveFileId: "",
+      });
+
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid invoice data", errors: parsed.error });
+      }
+
+      // Get user token for drive folder ID
+      const userToken = await storage.getUserTokenByToken(req.body.token || "");
+      if (!userToken) {
+        // Try to find by userName
+        const allTokens = [
+          { name: "Michael", driveFolderId: "1WcWKj_xHWlfjBub4GZoQTywKztIFRPlx" },
+          { name: "Fatou", driveFolderId: "1TZU-Reonldk3_ELSDB9LlG_EOI6aKxLA" },
+          { name: "Marine", driveFolderId: "16rkQSdjnsuzyVJvnW70jM7nkEkHR7_Q2" },
+        ];
+        const matchedToken = allTokens.find(t => t.name === userName);
+        if (!matchedToken) {
+          return res.status(401).json({ message: "User not found" });
+        }
+        var driveFolderId = matchedToken.driveFolderId;
+      } else {
+        var driveFolderId = userToken.driveFolderId;
+      }
+
+      // Upload file to Google Drive
+      const fileName = `${userName}_${Date.now()}_${file.originalname}`;
+      const driveFileId = await uploadFileToDrive(file, driveFolderId, fileName);
+
+      // Create invoice
+      const invoice = await storage.createInvoice({
+        ...parsed.data,
+        fileName,
+        filePath: driveFileId,
+        driveFileId,
+      });
+
+      // Get supplier name for email
+      const supplier = await storage.getSupplierById(supplierId);
+
+      // Send confirmation email
+      const userEmail = userToken?.email || 
+        (userName === "Michael" ? "michael@filtreplante.com" : 
+         userName === "Marine" ? "marine@filtreplante.com" : 
+         "fatou@filtreplante.com");
+
+      try {
+        await sendInvoiceConfirmation(userEmail, userName, {
+          supplierName: supplier?.name || "N/A",
+          amount: parseFloat(amountTTC).toLocaleString("fr-FR"),
+          date: format(new Date(invoiceDate), "d MMMM yyyy", { locale: fr }),
+        });
+      } catch (emailError) {
+        console.error("Error sending email:", emailError);
+        // Don't fail the request if email fails
+      }
+
+      res.status(201).json(invoice);
+    } catch (error) {
+      console.error("Error creating invoice:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Download invoice file
+  app.get("/api/invoices/:id/download", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.getInvoiceById(id);
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      const fileBuffer = await downloadFileFromDrive(invoice.driveFileId);
+
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${invoice.fileName}"`);
+      res.send(fileBuffer);
+    } catch (error) {
+      console.error("Error downloading invoice:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Delete invoice
+  app.delete("/api/invoices/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.getInvoiceById(id);
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      // Delete from Google Drive
+      try {
+        await deleteFileFromDrive(invoice.driveFileId);
+      } catch (driveError) {
+        console.error("Error deleting from Drive:", driveError);
+        // Continue even if Drive deletion fails
+      }
+
+      // Delete from database
+      await storage.deleteInvoice(id);
+
+      res.json({ message: "Invoice deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Admin login
+  app.post("/api/admin/login", async (req: Request, res: Response) => {
+    try {
+      const { password } = req.body;
+
+      if (!password) {
+        return res.status(400).json({ message: "Password is required" });
+      }
+
+      const adminConfig = await storage.getAdminConfig();
+      if (!adminConfig) {
+        return res.status(500).json({ message: "Admin config not found" });
+      }
+
+      const isValid = await bcrypt.compare(password, adminConfig.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid password" });
+      }
+
+      res.json({ message: "Login successful" });
+    } catch (error) {
+      console.error("Error logging in:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Admin export CSV
+  app.get("/api/admin/export-csv", async (req: Request, res: Response) => {
+    try {
+      const invoices = await storage.getAllInvoices();
+
+      const csvHeader = "Nom,Date,Fournisseur,Catégorie,Montant TTC,TVA Applicable,Montant HT,Description,Type de règlement,Projet,Créé le\n";
+      const csvRows = invoices.map((inv) => {
+        const projectInfo = inv.projectNumber && inv.projectName 
+          ? `${inv.projectNumber} - ${inv.projectName}` 
+          : "";
+        return [
+          inv.userName,
+          format(new Date(inv.invoiceDate), "dd/MM/yyyy"),
+          inv.supplierName,
+          inv.category,
+          inv.amountTTC,
+          inv.vatApplicable ? "Oui" : "Non",
+          inv.amountHT || "",
+          inv.description || "",
+          inv.paymentType,
+          projectInfo,
+          format(new Date(inv.createdAt), "dd/MM/yyyy HH:mm"),
+        ]
+          .map((field) => `"${field}"`)
+          .join(",");
+      });
+
+      const csv = csvHeader + csvRows.join("\n");
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="factures_${format(new Date(), "yyyy-MM-dd")}.csv"`);
+      res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
+    } catch (error) {
+      console.error("Error exporting CSV:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Admin reset database
+  app.post("/api/admin/reset-database", async (req: Request, res: Response) => {
+    try {
+      const invoices = await storage.getAllInvoices();
+
+      // Delete all files from Google Drive
+      for (const invoice of invoices) {
+        try {
+          await deleteFileFromDrive(invoice.driveFileId);
+        } catch (driveError) {
+          console.error(`Error deleting file ${invoice.driveFileId}:`, driveError);
+          // Continue even if some deletions fail
+        }
+      }
+
+      // Delete all invoices from database
+      await storage.deleteAllInvoices();
+
+      res.json({ message: "Database reset successfully" });
+    } catch (error) {
+      console.error("Error resetting database:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
 
   const httpServer = createServer(app);
-
   return httpServer;
 }
