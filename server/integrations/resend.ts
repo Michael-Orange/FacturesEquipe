@@ -45,6 +45,7 @@ export async function getUncachableResendClient() {
 export async function sendInvoiceConfirmation(
   toEmail: string,
   userName: string,
+  userToken: string,
   invoiceDetails: {
     supplierName: string;
     amount: string;
@@ -52,6 +53,7 @@ export async function sendInvoiceConfirmation(
   }
 ) {
   const { client, fromEmail } = await getUncachableResendClient();
+  const appUrl = `https://factures-fp.replit.app/${userName.toLowerCase()}_${userToken}`;
 
   await client.emails.send({
     from: fromEmail,
@@ -71,6 +73,8 @@ export async function sendInvoiceConfirmation(
             .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
             .detail-label { font-weight: 600; color: #666; }
             .detail-value { color: #157a70; font-weight: 600; }
+            .button { display: inline-block; padding: 14px 28px; background-color: #157a70; color: white; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0; }
+            .button:hover { background-color: #2997aa; }
             .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }
           </style>
         </head>
@@ -101,6 +105,10 @@ export async function sendInvoiceConfirmation(
               </div>
 
               <p>Votre facture a été sauvegardée et peut être consultée dans votre espace de suivi.</p>
+              
+              <div style="text-align: center; margin-top: 30px;">
+                <a href="${appUrl}" class="button">Accéder à mon espace</a>
+              </div>
             </div>
             <div class="footer">
               <p>Cet email a été envoyé automatiquement par FiltrePlante</p>

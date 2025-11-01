@@ -70,14 +70,14 @@ const invoiceFormSchema = z.object({
 export type InvoiceFormData = z.infer<typeof invoiceFormSchema>;
 
 const CATEGORIES = [
-  "Restauration, boissons et petits achats alimentaires",
-  "Essence",
   "Fourniture Matériaux",
   "Achats Prestas",
-  "Transport de matériel",
+  "Restauration, boissons et petits achats alimentaires",
   "Transport de personnes",
-  "Hébergement",
+  "Transport de matériel",
   "Telephone/Internet",
+  "Essence",
+  "Hébergement",
   "Autre",
 ];
 
@@ -102,7 +102,7 @@ export function InvoiceForm({
     defaultValues: {
       invoiceDate: new Date().toISOString().split("T")[0],
       supplierId: "",
-      category: "",
+      category: "Fourniture Matériaux",
       amountTTC: "",
       vatApplicable: "false",
       amountHT: "",
@@ -177,7 +177,7 @@ export function InvoiceForm({
       form.reset({
         invoiceDate: new Date().toISOString().split("T")[0],
         supplierId: "",
-        category: "",
+        category: "Fourniture Matériaux",
         amountTTC: "",
         vatApplicable: "false",
         amountHT: "",
@@ -390,9 +390,12 @@ export function InvoiceForm({
             <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
             <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
             {canUseWaveBusiness && (
-              <SelectItem value="Espèces remboursés par Wave Business" data-testid="option-payment-WaveBusiness">
-                Espèces remboursés par Wave Business
-              </SelectItem>
+              <>
+                <SelectItem value="Wave Business" data-testid="option-payment-WaveBusiness">Wave Business</SelectItem>
+                <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
+                  Perso remboursé par Wave Business
+                </SelectItem>
+              </>
             )}
           </SelectContent>
         </Select>

@@ -18,7 +18,7 @@ import {
   type InsertAdminConfig,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // User tokens
@@ -118,7 +118,7 @@ export class DatabaseStorage implements IStorage {
     const recentSuppliers = await db
       .select()
       .from(suppliers)
-      .where(sql`${suppliers.id} = ANY(${supplierIds})`);
+      .where(inArray(suppliers.id, supplierIds));
 
     // Sort by the order in recentInvoices
     const orderMap = new Map(supplierIds.map((id, index) => [id, index]));

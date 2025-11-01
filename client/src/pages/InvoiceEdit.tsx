@@ -56,6 +56,18 @@ interface Invoice {
   fileName: string;
 }
 
+const CATEGORIES = [
+  "Fourniture Matériaux",
+  "Achats Prestas",
+  "Restauration, boissons et petits achats alimentaires",
+  "Transport de personnes",
+  "Transport de matériel",
+  "Telephone/Internet",
+  "Essence",
+  "Hébergement",
+  "Autre",
+];
+
 export default function InvoiceEdit() {
   const { invoiceId, userToken } = useParams();
   const urlUsername = userToken?.split('_')[0];
@@ -299,7 +311,7 @@ export default function InvoiceEdit() {
                   <SelectValue placeholder="Sélectionner une catégorie..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {["Restauration, boissons et petits achats alimentaires", "Essence", "Fourniture Matériaux", "Achats Prestas", "Transport de matériel", "Transport de personnes", "Hébergement", "Telephone/Internet", "Autre"].map((cat) => (
+                  {CATEGORIES.map((cat) => (
                     <SelectItem key={cat} value={cat} data-testid={`option-category-${cat}`}>
                       {cat}
                     </SelectItem>
@@ -391,9 +403,12 @@ export default function InvoiceEdit() {
                   <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
                   <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
                   {canUseWaveBusiness && (
-                    <SelectItem value="Espèces remboursés par Wave Business" data-testid="option-payment-WaveBusiness">
-                      Espèces remboursés par Wave Business
-                    </SelectItem>
+                    <>
+                      <SelectItem value="Wave Business" data-testid="option-payment-WaveBusiness">Wave Business</SelectItem>
+                      <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
+                        Perso remboursé par Wave Business
+                      </SelectItem>
+                    </>
                   )}
                 </SelectContent>
               </Select>

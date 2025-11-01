@@ -204,7 +204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
          "fatou@filtreplante.com");
 
       try {
-        await sendInvoiceConfirmation(userEmail, userName, {
+        await sendInvoiceConfirmation(userEmail, userName, userToken.token, {
           supplierName: supplier?.name || "N/A",
           amount: parseFloat(amountTTC).toLocaleString("fr-FR"),
           date: format(new Date(invoiceDate), "d MMMM yyyy", { locale: fr }),
