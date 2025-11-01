@@ -40,7 +40,7 @@ export const invoices = pgTable("invoices", {
   amountTTC: decimal("amount_ttc", { precision: 12, scale: 2 }).notNull(),
   vatApplicable: boolean("vat_applicable").default(false),
   amountHT: decimal("amount_ht", { precision: 12, scale: 2 }),
-  description: text("description"),
+  description: text("description").notNull(),
   paymentType: text("payment_type").notNull(), // Wave, Espèces, Espèces remboursés par Wave Business
   projectId: varchar("project_id").references(() => projects.id),
   fileName: text("file_name").notNull(),

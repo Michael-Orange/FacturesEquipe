@@ -50,7 +50,7 @@ const invoiceFormSchema = z.object({
   amountTTC: z.string().min(1, "Le montant TTC est requis"),
   vatApplicable: z.enum(["true", "false"]),
   amountHT: z.string().optional(),
-  description: z.string().optional(),
+  description: z.string().min(1, "La description est requise"),
   paymentType: z.string().min(1, "Le type de règlement est requis"),
   projectId: z.string().optional(),
 }).refine(
@@ -358,7 +358,7 @@ export function InvoiceForm({
 
       <div className="space-y-2">
         <Label htmlFor="description" className="text-base font-medium">
-          Description <span className="text-muted-foreground text-sm">(optionnel)</span>
+          Description *
         </Label>
         <Textarea
           id="description"
@@ -367,6 +367,9 @@ export function InvoiceForm({
           className="min-h-24 text-base resize-none"
           data-testid="textarea-description"
         />
+        {form.formState.errors.description && (
+          <p className="text-sm text-destructive">{form.formState.errors.description.message}</p>
+        )}
       </div>
 
       <div className="space-y-2">

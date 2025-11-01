@@ -33,6 +33,14 @@ interface Project {
   startDate?: string | null;
 }
 
+interface UserData {
+  id: string;
+  name: string;
+  token: string;
+  email: string;
+  driveFolderId: string;
+}
+
 interface Invoice {
   id: string;
   userName: string;
@@ -56,7 +64,7 @@ export default function InvoiceEdit() {
   const { toast } = useToast();
 
   // Validate token
-  const { data: userData } = useQuery({
+  const { data: userData } = useQuery<UserData>({
     queryKey: ["/api/validate-token", token],
     enabled: !!token,
   });
@@ -183,6 +191,17 @@ export default function InvoiceEdit() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validation: description is required
+    if (!formData.description || formData.description.trim() === "") {
+      toast({
+        title: "Erreur",
+        description: "La description est requise",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     updateInvoiceMutation.mutate();
   };
 
@@ -348,7 +367,7 @@ export default function InvoiceEdit() {
 
             <div className="space-y-2">
               <Label htmlFor="description" className="text-base font-medium">
-                Description <span className="text-muted-foreground text-sm">(optionnel)</span>
+                Description *
               </Label>
               <Textarea
                 id="description"
