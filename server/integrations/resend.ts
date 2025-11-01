@@ -50,6 +50,11 @@ export async function sendInvoiceConfirmation(
     supplierName: string;
     amount: string;
     date: string;
+    category: string;
+    description?: string | null;
+    paymentType: string;
+    projectName?: string | null;
+    driveFileUrl: string;
   }
 ) {
   const { client, fromEmail } = await getUncachableResendClient();
@@ -98,9 +103,33 @@ export async function sendInvoiceConfirmation(
                   <span class="detail-label">Montant TTC :</span>
                   <span class="detail-value">${invoiceDetails.amount} FCFA</span>
                 </div>
-                <div class="detail-row" style="border-bottom: none;">
+                <div class="detail-row">
                   <span class="detail-label">Date :</span>
                   <span class="detail-value">${invoiceDetails.date}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Catégorie :</span>
+                  <span class="detail-value">${invoiceDetails.category}</span>
+                </div>
+                ${invoiceDetails.description ? `
+                <div class="detail-row">
+                  <span class="detail-label">Description :</span>
+                  <span class="detail-value">${invoiceDetails.description}</span>
+                </div>
+                ` : ''}
+                <div class="detail-row">
+                  <span class="detail-label">Type de règlement :</span>
+                  <span class="detail-value">${invoiceDetails.paymentType}</span>
+                </div>
+                ${invoiceDetails.projectName ? `
+                <div class="detail-row">
+                  <span class="detail-label">Projet :</span>
+                  <span class="detail-value">${invoiceDetails.projectName}</span>
+                </div>
+                ` : ''}
+                <div class="detail-row" style="border-bottom: none;">
+                  <span class="detail-label">Fichier :</span>
+                  <span class="detail-value"><a href="${invoiceDetails.driveFileUrl}" style="color: #157a70; text-decoration: underline;">Voir dans Google Drive</a></span>
                 </div>
               </div>
 

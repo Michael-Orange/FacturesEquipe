@@ -205,11 +205,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
          userName === "Marine" ? "marine@filtreplante.com" : 
          "fatou@filtreplante.com");
 
+      // Get project name if projectId is provided
+      let projectName: string | null = null;
+      if (projectId) {
+        const project = await storage.getProjectById(projectId);
+        projectName = project ? `${project.number} - ${project.name}` : null;
+      }
+
+      // Construct Google Drive file URL
+      const driveFileUrl = `https://drive.google.com/file/d/${driveFileId}/view`;
+
       try {
         await sendInvoiceConfirmation(userEmail, userName, userToken.token, {
           supplierName: supplier?.name || "N/A",
           amount: parseFloat(amountTTC).toLocaleString("fr-FR"),
           date: format(new Date(invoiceDate), "d MMMM yyyy", { locale: fr }),
+          category,
+          description: description || null,
+          paymentType,
+          projectName,
+          driveFileUrl,
         });
       } catch (emailError) {
         console.error("Error sending email:", emailError);
