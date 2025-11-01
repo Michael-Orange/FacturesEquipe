@@ -1,0 +1,213 @@
+2025-11-01 17:09:38.54
+16e6242d
+User
+routine: 'array_in'
+2025-11-01 17:09:38.54
+16e6242d
+User
+}
+2025-11-01 17:09:38.54
+16e6242d
+User
+5:09:38 PM [express] GET /api/suppliers/recent/Michael 500 in 2576ms :: {"message":"Internal server …
+2025-11-01 17:10:21.50
+16e6242d
+User
+Error fetching recent suppliers: error: malformed array literal: "0cc957a1-83a6-4515-bf1b-5a6379c814dc"
+2025-11-01 17:10:21.50
+16e6242d
+User
+at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+2025-11-01 17:10:21.50
+16e6242d
+User
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2025-11-01 17:10:21.50
+16e6242d
+User
+at async NeonPreparedQuery.execute (file:///home/runner/workspace/node_modules/drizzle-orm/neon-serverless/session.js:76:20)
+2025-11-01 17:10:21.50
+16e6242d
+User
+at async DatabaseStorage.getRecentSuppliersByUser (file:///home/runner/workspace/dist/index.js:157:29)
+2025-11-01 17:10:21.50
+16e6242d
+User
+at async file:///home/runner/workspace/dist/index.js:519:26 {
+2025-11-01 17:10:21.50
+16e6242d
+User
+length: 216,
+2025-11-01 17:10:21.50
+16e6242d
+User
+severity: 'ERROR',
+2025-11-01 17:10:21.50
+16e6242d
+User
+code: '22P02',
+2025-11-01 17:10:21.50
+16e6242d
+User
+detail: 'Array value must start with "{" or dimension information.',
+2025-11-01 17:10:21.50
+16e6242d
+User
+hint: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+position: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+internalPosition: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+internalQuery: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+where: "unnamed portal parameter $1 = '...'",
+2025-11-01 17:10:21.50
+16e6242d
+User
+schema: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+table: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+column: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+dataType: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+constraint: undefined,
+2025-11-01 17:10:21.50
+16e6242d
+User
+file: 'arrayfuncs.c',
+2025-11-01 17:10:21.50
+16e6242d
+User
+line: '319',
+2025-11-01 17:10:21.50
+16e6242d
+User
+routine: 'array_in'
+2025-11-01 17:10:21.50
+16e6242d
+User
+}
+2025-11-01 17:10:21.50
+16e6242d
+User
+5:10:21 PM [express] GET /api/suppliers/recent/Michael 500 in 142ms :: {"message":"Internal server e…
+2025-11-01 17:12:20.58
+16e6242d
+User
+Error fetching recent suppliers: error: malformed array literal: "0cc957a1-83a6-4515-bf1b-5a6379c814dc"
+2025-11-01 17:12:20.58
+16e6242d
+User
+at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+2025-11-01 17:12:20.58
+16e6242d
+User
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2025-11-01 17:12:20.58
+16e6242d
+User
+at async NeonPreparedQuery.execute (file:///home/runner/workspace/node_modules/drizzle-orm/neon-serverless/session.js:76:20)
+2025-11-01 17:12:20.58
+16e6242d
+User
+at async DatabaseStorage.getRecentSuppliersByUser (file:///home/runner/workspace/dist/index.js:157:29)
+2025-11-01 17:12:20.58
+16e6242d
+User
+at async file:///home/runner/workspace/dist/index.js:519:26 {
+2025-11-01 17:12:20.58
+16e6242d
+User
+length: 216,
+2025-11-01 17:12:20.58
+16e6242d
+User
+severity: 'ERROR',
+2025-11-01 17:12:20.58
+16e6242d
+User
+code: '22P02',
+2025-11-01 17:12:20.58
+16e6242d
+User
+detail: 'Array value must start with "{" or dimension information.',
+2025-11-01 17:12:20.58
+16e6242d
+User
+hint: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+position: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+internalPosition: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+internalQuery: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+where: "unnamed portal parameter $1 = '...'",
+2025-11-01 17:12:20.58
+16e6242d
+User
+schema: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+table: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+column: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+dataType: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+constraint: undefined,
+2025-11-01 17:12:20.58
+16e6242d
+User
+file: 'arrayfuncs.c',
+2025-11-01 17:12:20.58
+16e6242d
+User
+line: '319',
+2025-11-01 17:12:20.58
+16e6242d
+User
+routine: 'array_in'
+
+2025-11-01 17:12:20.58
+16e6242d
+User
+}
+2025-11-01 17:12:20.58
+16e6242d
+User
+5:12:20 PM [express] GET /api/suppliers/recent/Michael 500 in 529ms :: {"message":"Internal server e…
