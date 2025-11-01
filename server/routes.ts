@@ -464,6 +464,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Helper function to map internal categories to Axonaut categories
+  function categoryToAxonaut(category: string): string {
+    const mapping: Record<string, string> = {
+      "Essence": "Fournitures non stockables – Autres énergies",
+      "Restauration": "Réceptions", // Support legacy value
+      "Restauration, boissons et petits achats alimentaires": "Réceptions",
+      "Fourniture Matériaux": "Achats de matières premières et fournitures liées",
+      "Achats Prestas": "Achats d'études et prestations de services (sous-traitance directe projets)",
+      "Transport de matériel": "Transports sur achats",
+      "Transport de personnes": "Voyages Et Deplacements",
+      "Hébergement": "Voyages Et Deplacements",
+      "Telephone/Internet": "Frais de télécommunications",
+    };
+    return mapping[category] || "";
+  }
+
   // Admin export Axonaut CSV (protected)
   app.get("/api/admin/export-axonaut", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
@@ -507,7 +523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "0",                            // Montant TVA 10% *
           "0",                            // MontantTVA 5.5% *
           invoiceDate,                    // Montant TTC du * (même date)
-          "",                             // Categorie depense (vide pour l'instant)
+          categoryToAxonaut(inv.category), // Categorie depense
           "",                             // Montant taxe 8.5%
           "",                             // Montant taxe 2.1%
           "",                             // Montant taxe22%
