@@ -76,8 +76,11 @@ Preferred communication style: Simple, everyday language.
 4. **invoices** - Core invoice records
    - Links to suppliers and projects via foreign keys
    - Stores all invoice metadata and Google Drive file references
-   - Tracks payment type (Wave, Cash, or Cash reimbursed by Wave Business)
+   - Tracks payment type with user-specific options:
+     - Fatou: Wave (default), Espèces
+     - Michael & Marine: Wave Business (default), Espèces, Perso remboursé par Wave Business
    - Conditional VAT fields (hidden for restaurant category)
+   - Archive field (varchar, YYMMDD format) for archiving invoices
 
 5. **admin_config** - Admin panel configuration
    - Stores hashed admin password

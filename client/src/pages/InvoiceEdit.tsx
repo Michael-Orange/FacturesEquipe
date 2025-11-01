@@ -400,14 +400,18 @@ export default function InvoiceEdit() {
                   <SelectValue placeholder="Sélectionner un type de règlement..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
-                  <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
-                  {canUseWaveBusiness && (
+                  {canUseWaveBusiness ? (
                     <>
                       <SelectItem value="Wave Business" data-testid="option-payment-WaveBusiness">Wave Business</SelectItem>
+                      <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
                       <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
                         Perso remboursé par Wave Business
                       </SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
+                      <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
                     </>
                   )}
                 </SelectContent>

@@ -96,6 +96,7 @@ export function InvoiceForm({
   const { toast } = useToast();
 
   const canUseWaveBusiness = userName === "Michael" || userName === "Marine";
+  const defaultPaymentType = canUseWaveBusiness ? "Wave Business" : "Wave";
 
   const form = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceFormSchema),
@@ -107,7 +108,7 @@ export function InvoiceForm({
       vatApplicable: "false",
       amountHT: "",
       description: "",
-      paymentType: "",
+      paymentType: defaultPaymentType,
       projectId: "",
     },
   });
@@ -182,7 +183,7 @@ export function InvoiceForm({
         vatApplicable: "false",
         amountHT: "",
         description: "",
-        paymentType: "",
+        paymentType: defaultPaymentType,
         projectId: "",
       });
       setSelectedFile(null);
@@ -387,14 +388,18 @@ export function InvoiceForm({
             <SelectValue placeholder="Sélectionner un type de règlement..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
-            <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
-            {canUseWaveBusiness && (
+            {canUseWaveBusiness ? (
               <>
                 <SelectItem value="Wave Business" data-testid="option-payment-WaveBusiness">Wave Business</SelectItem>
+                <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
                 <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
                   Perso remboursé par Wave Business
                 </SelectItem>
+              </>
+            ) : (
+              <>
+                <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
+                <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
               </>
             )}
           </SelectContent>
