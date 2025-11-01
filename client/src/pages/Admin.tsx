@@ -17,9 +17,14 @@ export default function Admin() {
 
   const loginMutation = useMutation({
     mutationFn: async (pwd: string) => {
-      return await apiRequest("POST", "/api/admin/login", { password: pwd });
+      const response = await apiRequest("POST", "/api/admin/login", { password: pwd });
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      // Store session token in localStorage
+      if (data.sessionToken) {
+        localStorage.setItem("adminSessionToken", data.sessionToken);
+      }
       setIsAuthenticated(true);
       setPassword("");
     },
@@ -34,7 +39,12 @@ export default function Admin() {
 
   const exportCSVMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch("/api/admin/export-csv");
+      const token = localStorage.getItem("adminSessionToken");
+      const response = await fetch("/api/admin/export-csv", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
       if (!response.ok) throw new Error("Erreur lors de l'export");
 
       const blob = await response.blob();
@@ -68,6 +78,8 @@ export default function Admin() {
   };
 
   const handleLogout = () => {
+    // Clear session token from localStorage
+    localStorage.removeItem("adminSessionToken");
     setIsAuthenticated(false);
   };
 

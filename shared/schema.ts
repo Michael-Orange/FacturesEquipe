@@ -77,7 +77,11 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
 }).extend({
   invoiceDate: z.string().or(z.date()),
   amountTTC: z.string().or(z.number()),
-  amountHT: z.string().or(z.number()).optional(),
+  amountHT: z.string().or(z.number()).optional().nullable(),
+  projectId: z.string().optional().nullable(),
+  fileName: z.string().optional(),
+  filePath: z.string().optional(),
+  driveFileId: z.string().optional(),
 });
 
 export const insertAdminConfigSchema = createInsertSchema(adminConfig).omit({

@@ -79,7 +79,7 @@ export default function InvoiceSubmission() {
     },
     onSuccess: () => {
       toast({
-        title: "Facture soumise !",
+        title: "Facture soumise",
         description: "Un email de confirmation a été envoyé",
       });
     },

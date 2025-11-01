@@ -168,7 +168,7 @@ export function InvoiceForm({
             </div>
           </div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-semibold text-primary">Facture soumise avec succès !</h2>
+            <h2 className="text-2xl font-semibold text-primary">Facture soumise avec succès</h2>
             <p className="text-muted-foreground">
               Votre facture a été enregistrée et un email de confirmation a été envoyé.
             </p>

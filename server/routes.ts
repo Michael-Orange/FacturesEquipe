@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import bcrypt from "bcrypt";
+import { randomBytes } from "crypto";
 import { storage } from "./storage";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
@@ -144,13 +145,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: description || null,
         paymentType,
         projectId: projectId || null,
-        fileName: file.originalname,
-        filePath: "",
-        driveFileId: "",
       });
 
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid invoice data", errors: parsed.error });
+        console.error("Validation error:", parsed.error);
+        return res.status(400).json({ 
+          message: "Invalid invoice data", 
+          errors: parsed.error.format() 
+        });
       }
 
       // Get user token for drive folder ID
@@ -175,9 +177,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fileName = `${userName}_${Date.now()}_${file.originalname}`;
       const driveFileId = await uploadFileToDrive(file, driveFolderId, fileName);
 
-      // Create invoice
+      // Create invoice with proper date conversion
       const invoice = await storage.createInvoice({
         ...parsed.data,
+        invoiceDate: new Date(parsed.data.invoiceDate),
+        amountTTC: parsed.data.amountTTC.toString(),
+        amountHT: parsed.data.amountHT ? parsed.data.amountHT.toString() : null,
         fileName,
         filePath: driveFileId,
         driveFileId,
@@ -259,6 +264,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin sessions (in-memory for simplicity)
+  const adminSessions = new Set<string>();
+
   // Admin login
   app.post("/api/admin/login", async (req: Request, res: Response) => {
     try {
@@ -278,15 +286,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Invalid password" });
       }
 
-      res.json({ message: "Login successful" });
+      // Generate session token
+      const sessionToken = randomBytes(32).toString("hex");
+      adminSessions.add(sessionToken);
+
+      res.json({ message: "Login successful", sessionToken });
     } catch (error) {
       console.error("Error logging in:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
 
-  // Admin export CSV
-  app.get("/api/admin/export-csv", async (req: Request, res: Response) => {
+  // Middleware to verify admin authentication
+  const verifyAdminAuth = (req: Request, res: Response, next: any) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.replace("Bearer ", "");
+
+    if (!token || !adminSessions.has(token)) {
+      return res.status(401).json({ message: "Unauthorized - Invalid or missing admin session" });
+    }
+
+    next();
+  };
+
+  // Admin export CSV (protected)
+  app.get("/api/admin/export-csv", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
       const invoices = await storage.getAllInvoices();
 
@@ -323,8 +347,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin reset database
-  app.post("/api/admin/reset-database", async (req: Request, res: Response) => {
+  // Admin reset database (protected)
+  app.post("/api/admin/reset-database", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
       const invoices = await storage.getAllInvoices();
 
