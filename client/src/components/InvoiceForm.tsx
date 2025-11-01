@@ -293,9 +293,11 @@ export function InvoiceForm({
         {form.formState.errors.category && (
           <p className="text-sm text-destructive">{form.formState.errors.category.message}</p>
         )}
-        <p className="text-sm text-muted-foreground italic mt-1">
-          ℹ️ La TVA n'est pas applicable sur les frais de restaurants
-        </p>
+        {category === "Restauration, boissons et petits achats alimentaires" && (
+          <p className="text-sm text-muted-foreground italic mt-1">
+            ℹ️ La TVA n'est pas applicable sur les frais de restaurants
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">

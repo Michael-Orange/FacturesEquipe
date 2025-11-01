@@ -318,9 +318,11 @@ export default function InvoiceEdit() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-sm text-muted-foreground italic mt-1">
-                ℹ️ La TVA n'est pas applicable sur les frais de restaurants
-              </p>
+              {formData.category === "Restauration, boissons et petits achats alimentaires" && (
+                <p className="text-sm text-muted-foreground italic mt-1">
+                  ℹ️ La TVA n'est pas applicable sur les frais de restaurants
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
