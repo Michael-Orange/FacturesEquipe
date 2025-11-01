@@ -8,14 +8,19 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 export default function InvoiceSubmission() {
-  const [, params] = useRoute("/submit/:token");
-  const token = params?.token;
+  const [, params] = useRoute("/:userToken");
+  const userToken = params?.userToken;
+  const urlUsername = userToken?.split('_')[0];
+  const token = userToken?.split('_').slice(1).join('_');
   const { toast } = useToast();
 
   const { data: userData, isLoading: userLoading, error: userError } = useQuery({
     queryKey: ["/api/validate-token", token],
     enabled: !!token,
   });
+
+  // Verify username in URL matches the token owner
+  const isValidUser = userData && urlUsername && userData.name.toLowerCase() === urlUsername.toLowerCase();
 
   const { data: suppliers = [], isLoading: suppliersLoading } = useQuery({
     queryKey: ["/api/suppliers"],
@@ -54,6 +59,7 @@ export default function InvoiceSubmission() {
     mutationFn: async (data: InvoiceFormData & { file: File }) => {
       const formData = new FormData();
       formData.append("userName", userData.name);
+      formData.append("token", token!);
       formData.append("invoiceDate", data.invoiceDate);
       formData.append("supplierId", data.supplierId);
       formData.append("category", data.category);
@@ -115,13 +121,13 @@ export default function InvoiceSubmission() {
     );
   }
 
-  if (userError || !userData) {
+  if (userError || !userData || !isValidUser) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="p-8 max-w-md w-full text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-destructive mb-2">Accès refusé</h1>
-          <p className="text-muted-foreground">Token d'accès invalide.</p>
+          <p className="text-muted-foreground">Token d'accès invalide ou ne correspond pas au nom d'utilisateur.</p>
         </Card>
       </div>
     );
@@ -166,7 +172,7 @@ export default function InvoiceSubmission() {
           <div className="flex justify-center">
             <Button
               variant="outline"
-              onClick={() => window.location.href = `/tracking/${token}`}
+              onClick={() => window.location.href = `/tracking/${userToken}`}
               data-testid="button-view-tracking"
             >
               Voir mes factures

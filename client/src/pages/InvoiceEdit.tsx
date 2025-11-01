@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Pencil } from "lucide-react";
+import { ArrowLeft, Pencil, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -49,9 +49,20 @@ interface Invoice {
 }
 
 export default function InvoiceEdit() {
-  const { invoiceId, token } = useParams();
+  const { invoiceId, userToken } = useParams();
+  const urlUsername = userToken?.split('_')[0];
+  const token = userToken?.split('_').slice(1).join('_');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  // Validate token
+  const { data: userData } = useQuery({
+    queryKey: ["/api/validate-token", token],
+    enabled: !!token,
+  });
+
+  // Verify username in URL matches the token owner
+  const isValidUser = userData && urlUsername && userData.name.toLowerCase() === urlUsername.toLowerCase();
 
   // Fetch invoice data
   const { data: invoice, isLoading: isLoadingInvoice } = useQuery<Invoice>({
@@ -159,7 +170,7 @@ export default function InvoiceEdit() {
         title: "Succès",
         description: "La facture a été modifiée avec succès",
       });
-      setLocation(`/tracking/${token}`);
+      setLocation(`/tracking/${userToken}`);
     },
     onError: (error: Error) => {
       toast({
@@ -193,13 +204,25 @@ export default function InvoiceEdit() {
     );
   }
 
+  if (!isValidUser) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="p-8 max-w-md w-full text-center">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-destructive mb-2">Accès refusé</h1>
+          <p className="text-muted-foreground">Token d'accès invalide ou ne correspond pas au nom d'utilisateur.</p>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-primary text-primary-foreground py-6 px-4 shadow-md">
         <div className="max-w-3xl mx-auto">
           <Button
             variant="ghost"
-            onClick={() => setLocation(`/tracking/${token}`)}
+            onClick={() => setLocation(`/tracking/${userToken}`)}
             className="mb-4 text-primary-foreground hover:bg-primary/80"
             data-testid="button-back-to-tracking"
           >

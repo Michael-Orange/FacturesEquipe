@@ -9,6 +9,7 @@ import { sendInvoiceConfirmation } from "./integrations/resend";
 import { insertInvoiceSchema, insertSupplierSchema } from "@shared/schema";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { generateFileName } from "./utils";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -155,26 +156,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Get user token for drive folder ID
+      // Get user token for drive folder ID - token is required
       const userToken = await storage.getUserTokenByToken(req.body.token || "");
       if (!userToken) {
-        // Try to find by userName
-        const allTokens = [
-          { name: "Michael", driveFolderId: "1WcWKj_xHWlfjBub4GZoQTywKztIFRPlx" },
-          { name: "Fatou", driveFolderId: "1TZU-Reonldk3_ELSDB9LlG_EOI6aKxLA" },
-          { name: "Marine", driveFolderId: "16rkQSdjnsuzyVJvnW70jM7nkEkHR7_Q2" },
-        ];
-        const matchedToken = allTokens.find(t => t.name === userName);
-        if (!matchedToken) {
-          return res.status(401).json({ message: "User not found" });
-        }
-        var driveFolderId = matchedToken.driveFolderId;
-      } else {
-        var driveFolderId = userToken.driveFolderId;
+        return res.status(401).json({ message: "Invalid or missing token" });
       }
 
+      // Verify that token owner matches the provided userName
+      if (userToken.name !== userName) {
+        return res.status(403).json({ message: "Token does not match user name" });
+      }
+
+      const driveFolderId = userToken.driveFolderId;
+
+      // Get supplier name for file naming
+      const supplier = await storage.getSupplierById(supplierId);
+      if (!supplier) {
+        return res.status(400).json({ message: "Supplier not found" });
+      }
+
+      // Generate file name with new format: YYMMDD_Supplier_AmountTTC
+      const fileName = generateFileName(
+        invoiceDate,
+        supplier.name,
+        amountTTC,
+        file.originalname
+      );
+
       // Upload file to Google Drive
-      const fileName = `${userName}_${Date.now()}_${file.originalname}`;
       const driveFileId = await uploadFileToDrive(file, driveFolderId, fileName);
 
       // Create invoice with proper date conversion
@@ -187,9 +196,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         filePath: driveFileId,
         driveFileId,
       });
-
-      // Get supplier name for email
-      const supplier = await storage.getSupplierById(supplierId);
 
       // Send confirmation email
       const userEmail = userToken?.email || 
@@ -278,8 +284,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle file replacement
       if (file) {
+        // Get supplier name for file naming
+        const finalSupplierId = supplierId || existingInvoice.supplierId;
+        const supplier = await storage.getSupplierById(finalSupplierId);
+        if (!supplier) {
+          return res.status(400).json({ message: "Supplier not found" });
+        }
+
+        // Generate file name with new format: YYMMDD_Supplier_AmountTTC
+        const finalInvoiceDate = invoiceDate || existingInvoice.invoiceDate.toISOString().split('T')[0];
+        const finalAmountTTC = amountTTC || existingInvoice.amountTTC;
+        const fileName = generateFileName(
+          finalInvoiceDate,
+          supplier.name,
+          finalAmountTTC,
+          file.originalname
+        );
+
         // Upload new file to Google Drive
-        const fileName = `${existingInvoice.userName}_${Date.now()}_${file.originalname}`;
         const driveFileId = await uploadFileToDrive(file, userToken.driveFolderId, fileName);
 
         // Delete old file from Drive

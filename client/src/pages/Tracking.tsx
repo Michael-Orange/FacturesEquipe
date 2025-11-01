@@ -8,15 +8,20 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Tracking() {
-  const [, params] = useRoute("/tracking/:token");
+  const [, params] = useRoute("/tracking/:userToken");
   const [, setLocation] = useLocation();
-  const token = params?.token;
+  const userToken = params?.userToken;
+  const urlUsername = userToken?.split('_')[0];
+  const token = userToken?.split('_').slice(1).join('_');
   const { toast } = useToast();
 
   const { data: userData, isLoading: userLoading, error: userError } = useQuery({
     queryKey: ["/api/validate-token", token],
     enabled: !!token,
   });
+
+  // Verify username in URL matches the token owner
+  const isValidUser = userData && urlUsername && userData.name.toLowerCase() === urlUsername.toLowerCase();
 
   const { data: invoices = [], isLoading: invoicesLoading } = useQuery({
     queryKey: ["/api/invoices", userData?.name],
@@ -96,13 +101,13 @@ export default function Tracking() {
     );
   }
 
-  if (userError || !userData) {
+  if (userError || !userData || !isValidUser) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="p-8 max-w-md w-full text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-destructive mb-2">Accès refusé</h1>
-          <p className="text-muted-foreground">Token d'accès invalide.</p>
+          <p className="text-muted-foreground">Token d'accès invalide ou ne correspond pas au nom d'utilisateur.</p>
         </Card>
       </div>
     );
@@ -132,7 +137,7 @@ export default function Tracking() {
           </div>
           <Button
             variant="outline"
-            onClick={() => window.location.href = `/submit/${token}`}
+            onClick={() => window.location.href = `/${userToken}`}
             data-testid="button-submit-new"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -143,7 +148,7 @@ export default function Tracking() {
         <TrackingTable
           invoices={invoices}
           onDownload={downloadInvoiceMutation.mutateAsync}
-          onEdit={(invoiceId) => setLocation(`/edit/${invoiceId}/${token}`)}
+          onEdit={(invoiceId) => setLocation(`/edit/${invoiceId}/${userToken}`)}
           onDelete={deleteInvoiceMutation.mutateAsync}
         />
       </main>

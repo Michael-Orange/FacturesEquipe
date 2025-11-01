@@ -33,7 +33,7 @@ async function seed() {
       const tokens = await db.select().from(userTokens);
       console.log("\n📋 Access URLs:");
       tokens.forEach((token) => {
-        console.log(`  ${token.name}: /submit/${token.token}`);
+        console.log(`  ${token.name}: /${token.name.toLowerCase()}_${token.token}`);
       });
       
       return;
@@ -46,19 +46,19 @@ async function seed() {
       tokens = [
         {
           name: "Michael",
-          token: randomBytes(32).toString("hex"),
+          token: randomBytes(2).toString("hex").substring(0, 3),
           email: "michael@filtreplante.com",
           driveFolderId: "1WcWKj_xHWlfjBub4GZoQTywKztIFRPlx",
         },
         {
           name: "Marine",
-          token: randomBytes(32).toString("hex"),
+          token: randomBytes(2).toString("hex").substring(0, 3),
           email: "marine@filtreplante.com",
           driveFolderId: "16rkQSdjnsuzyVJvnW70jM7nkEkHR7_Q2",
         },
         {
           name: "Fatou",
-          token: randomBytes(32).toString("hex"),
+          token: randomBytes(2).toString("hex").substring(0, 3),
           email: "fatou@filtreplante.com",
           driveFolderId: "1TZU-Reonldk3_ELSDB9LlG_EOI6aKxLA",
         },
@@ -68,14 +68,14 @@ async function seed() {
       console.log("✓ User tokens created");
       console.log("\n📋 Access URLs:");
       tokens.forEach((token) => {
-        console.log(`  ${token.name}: /submit/${token.token}`);
+        console.log(`  ${token.name}: /${token.name.toLowerCase()}_${token.token}`);
       });
     } else {
       console.log("✓ User tokens already exist");
       tokens = await db.select().from(userTokens);
       console.log("\n📋 Access URLs:");
       tokens.forEach((token) => {
-        console.log(`  ${token.name}: /submit/${token.token}`);
+        console.log(`  ${token.name}: /${token.name.toLowerCase()}_${token.token}`);
       });
     }
 

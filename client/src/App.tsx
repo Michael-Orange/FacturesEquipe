@@ -12,10 +12,10 @@ import NotFound from "@/pages/not-found";
 function Router() {
   return (
     <Switch>
-      <Route path="/submit/:token" component={InvoiceSubmission} />
-      <Route path="/tracking/:token" component={Tracking} />
-      <Route path="/edit/:invoiceId/:token" component={InvoiceEdit} />
       <Route path="/admin" component={Admin} />
+      <Route path="/edit/:invoiceId/:userToken" component={InvoiceEdit} />
+      <Route path="/tracking/:userToken" component={Tracking} />
+      <Route path="/:userToken" component={InvoiceSubmission} />
       <Route component={NotFound} />
     </Switch>
   );
