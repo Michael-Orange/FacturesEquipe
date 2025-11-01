@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute } from "wouter";
+import { useRoute, useLocation } from "wouter";
 import { Loader2, AlertCircle, FileText, ArrowLeft } from "lucide-react";
 import { TrackingTable } from "@/components/TrackingTable";
 import { Card } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export default function Tracking() {
   const [, params] = useRoute("/tracking/:token");
+  const [, setLocation] = useLocation();
   const token = params?.token;
   const { toast } = useToast();
 
@@ -142,6 +143,7 @@ export default function Tracking() {
         <TrackingTable
           invoices={invoices}
           onDownload={downloadInvoiceMutation.mutateAsync}
+          onEdit={(invoiceId) => setLocation(`/edit/${invoiceId}/${token}`)}
           onDelete={deleteInvoiceMutation.mutateAsync}
         />
       </main>

@@ -53,7 +53,18 @@ const invoiceFormSchema = z.object({
   description: z.string().optional(),
   paymentType: z.string().min(1, "Le type de règlement est requis"),
   projectId: z.string().optional(),
-});
+}).refine(
+  (data) => {
+    if (data.vatApplicable === "true" && (!data.amountHT || data.amountHT.trim() === "")) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: "Le montant HT est requis quand la TVA est applicable",
+    path: ["amountHT"],
+  }
+);
 
 export type InvoiceFormData = z.infer<typeof invoiceFormSchema>;
 
@@ -298,7 +309,7 @@ export function InvoiceForm({
       {vatApplicable === "true" && (
         <div className="space-y-2">
           <Label htmlFor="amountHT" className="text-base font-medium">
-            Montant HT (FCFA) <span className="text-muted-foreground text-sm">(optionnel)</span>
+            Montant HT (FCFA) *
           </Label>
           <Input
             id="amountHT"
@@ -309,6 +320,9 @@ export function InvoiceForm({
             className="h-14 text-base"
             data-testid="input-amount-ht"
           />
+          {form.formState.errors.amountHT && (
+            <p className="text-sm text-destructive">{form.formState.errors.amountHT.message}</p>
+          )}
         </div>
       )}
 

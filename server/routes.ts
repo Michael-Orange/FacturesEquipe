@@ -215,6 +215,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get invoice by ID (singular to avoid conflict with /api/invoices/:userName)
+  app.get("/api/invoice/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.getInvoiceById(id);
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error fetching invoice:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Update invoice
+  app.put("/api/invoices/:id", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const file = req.file;
+
+      // Get existing invoice
+      const existingInvoice = await storage.getInvoiceById(id);
+      if (!existingInvoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      // Verify ownership via token
+      const token = req.body.token || "";
+      const userToken = await storage.getUserTokenByToken(token);
+      if (!userToken || userToken.name !== existingInvoice.userName) {
+        return res.status(403).json({ message: "Unauthorized - You can only edit your own invoices" });
+      }
+
+      const {
+        invoiceDate,
+        supplierId,
+        category,
+        amountTTC,
+        vatApplicable,
+        amountHT,
+        description,
+        paymentType,
+        projectId,
+      } = req.body;
+
+      // Prepare update data
+      const updateData: any = {};
+      
+      if (invoiceDate) updateData.invoiceDate = new Date(invoiceDate);
+      if (supplierId) updateData.supplierId = supplierId;
+      if (category) updateData.category = category;
+      if (amountTTC) updateData.amountTTC = amountTTC.toString();
+      if (vatApplicable !== undefined) updateData.vatApplicable = vatApplicable === "true";
+      if (amountHT !== undefined) updateData.amountHT = amountHT ? amountHT.toString() : null;
+      if (description !== undefined) updateData.description = description || null;
+      if (paymentType) updateData.paymentType = paymentType;
+      if (projectId !== undefined) updateData.projectId = projectId || null;
+
+      // Handle file replacement
+      if (file) {
+        // Upload new file to Google Drive
+        const fileName = `${existingInvoice.userName}_${Date.now()}_${file.originalname}`;
+        const driveFileId = await uploadFileToDrive(file, userToken.driveFolderId, fileName);
+
+        // Delete old file from Drive
+        try {
+          await deleteFileFromDrive(existingInvoice.driveFileId);
+        } catch (driveError) {
+          console.error("Error deleting old file from Drive:", driveError);
+          // Continue even if old file deletion fails
+        }
+
+        // Update file references
+        updateData.fileName = fileName;
+        updateData.filePath = driveFileId;
+        updateData.driveFileId = driveFileId;
+      }
+
+      // Update invoice in database
+      const updatedInvoice = await storage.updateInvoice(id, updateData);
+
+      if (!updatedInvoice) {
+        return res.status(404).json({ message: "Invoice not found after update" });
+      }
+
+      res.json(updatedInvoice);
+    } catch (error) {
+      console.error("Error updating invoice:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Download invoice file
   app.get("/api/invoices/:id/download", async (req: Request, res: Response) => {
     try {

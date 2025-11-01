@@ -87,15 +87,15 @@ export async function sendInvoiceConfirmation(
               <div class="details">
                 <h2 style="margin-top: 0; color: #157a70;">Détails de la facture</h2>
                 <div class="detail-row">
-                  <span class="detail-label">Fournisseur</span>
+                  <span class="detail-label">Fournisseur :</span>
                   <span class="detail-value">${invoiceDetails.supplierName}</span>
                 </div>
                 <div class="detail-row">
-                  <span class="detail-label">Montant TTC</span>
+                  <span class="detail-label">Montant TTC :</span>
                   <span class="detail-value">${invoiceDetails.amount} FCFA</span>
                 </div>
                 <div class="detail-row" style="border-bottom: none;">
-                  <span class="detail-label">Date</span>
+                  <span class="detail-label">Date :</span>
                   <span class="detail-value">${invoiceDetails.date}</span>
                 </div>
               </div>

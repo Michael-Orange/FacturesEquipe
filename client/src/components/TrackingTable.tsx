@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Trash2, FileText } from "lucide-react";
+import { Download, Trash2, FileText, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -45,10 +45,11 @@ interface InvoiceWithDetails {
 interface TrackingTableProps {
   invoices: InvoiceWithDetails[];
   onDownload: (invoice: InvoiceWithDetails) => Promise<void>;
+  onEdit: (invoiceId: string) => void;
   onDelete: (invoiceId: string) => Promise<void>;
 }
 
-export function TrackingTable({ invoices, onDownload, onDelete }: TrackingTableProps) {
+export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: TrackingTableProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithDetails | null>(null);
   const [loadingDownload, setLoadingDownload] = useState<string | null>(null);
@@ -155,6 +156,16 @@ export function TrackingTable({ invoices, onDownload, onDelete }: TrackingTableP
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => onEdit(invoice.id)}
+                    className="flex-1"
+                    data-testid={`button-edit-${invoice.id}`}
+                  >
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Modifier
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleDeleteClick(invoice)}
                     className="flex-1 text-destructive hover:bg-destructive/10"
                     data-testid={`button-delete-${invoice.id}`}
@@ -224,6 +235,14 @@ export function TrackingTable({ invoices, onDownload, onDelete }: TrackingTableP
                         data-testid={`button-download-${invoice.id}`}
                       >
                         <Download className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => onEdit(invoice.id)}
+                        data-testid={`button-edit-${invoice.id}`}
+                      >
+                        <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="outline"

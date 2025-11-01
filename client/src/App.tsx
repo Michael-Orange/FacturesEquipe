@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import InvoiceSubmission from "@/pages/InvoiceSubmission";
 import Tracking from "@/pages/Tracking";
+import InvoiceEdit from "@/pages/InvoiceEdit";
 import Admin from "@/pages/Admin";
 import NotFound from "@/pages/not-found";
 
@@ -13,6 +14,7 @@ function Router() {
     <Switch>
       <Route path="/submit/:token" component={InvoiceSubmission} />
       <Route path="/tracking/:token" component={Tracking} />
+      <Route path="/edit/:invoiceId/:token" component={InvoiceEdit} />
       <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>
