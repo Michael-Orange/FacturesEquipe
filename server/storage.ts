@@ -97,7 +97,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(suppliers)
-      .where(ne(suppliers.name, "Total Energies"))
+      .where(ne(suppliers.name, "TOTAL ENERGIES"))
       .orderBy(desc(suppliers.total))
       .limit(limit);
   }
