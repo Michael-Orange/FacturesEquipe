@@ -4,9 +4,11 @@ import multer from "multer";
 import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 import { storage } from "./storage";
+import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
-import { insertInvoiceSchema, insertSupplierSchema } from "@shared/schema";
+import { insertInvoiceSchema, insertSupplierSchema, invoices } from "@shared/schema";
+import { isNull } from "drizzle-orm";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { generateFileName } from "./utils";
@@ -426,10 +428,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   };
 
-  // Admin export CSV (protected)
+  // Admin export CSV (protected) - includes archived invoices
   app.get("/api/admin/export-csv", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
-      const invoices = await storage.getAllInvoices();
+      const invoices = await storage.getAllInvoicesIncludingArchived();
 
       const csvHeader = "Nom,Date,Fournisseur,Catégorie,Montant TTC,TVA Applicable,Montant HT,Description,Type de règlement,Projet,Créé le\n";
       const csvRows = invoices.map((inv) => {
@@ -572,20 +574,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // If any archiving failed, abort without deleting database records
+      // If any archiving failed, abort without updating database records
       if (archiveErrors.length > 0) {
         return res.status(500).json({ 
-          message: "Failed to archive files in Google Drive. Database was not reset to prevent data loss.",
+          message: "Failed to archive files in Google Drive. Invoices were not archived to prevent data loss.",
           errors: archiveErrors
         });
       }
 
-      // Only delete from database if all files were successfully archived
-      await storage.deleteAllInvoices();
+      // Only update archive field if all files were successfully archived
+      // Format: YYMMDD (e.g., "251101" for Nov 1, 2025)
+      const archiveDate = format(new Date(), "yyMMdd");
+      
+      const result = await db
+        .update(invoices)
+        .set({ archive: archiveDate })
+        .where(isNull(invoices.archive))
+        .returning();
 
       res.json({ 
-        message: "Database reset successfully", 
-        archivedFiles: totalArchived 
+        message: "Invoices archived successfully", 
+        archivedFiles: totalArchived,
+        archivedInvoices: result.length
       });
     } catch (error) {
       console.error("Error resetting database:", error);

@@ -18,7 +18,7 @@ import {
   type InsertAdminConfig,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql, inArray } from "drizzle-orm";
+import { eq, desc, sql, inArray, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // User tokens
@@ -41,6 +41,7 @@ export interface IStorage {
   // Invoices
   getInvoicesByUser(userName: string): Promise<InvoiceWithDetails[]>;
   getAllInvoices(): Promise<InvoiceWithDetails[]>;
+  getAllInvoicesIncludingArchived(): Promise<InvoiceWithDetails[]>;
   getInvoiceById(id: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: string, invoice: Partial<InsertInvoice>): Promise<Invoice | undefined>;
@@ -171,13 +172,44 @@ export class DatabaseStorage implements IStorage {
       .from(invoices)
       .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
       .leftJoin(projects, eq(invoices.projectId, projects.id))
-      .where(eq(invoices.userName, userName))
+      .where(sql`${invoices.userName} = ${userName} AND ${invoices.archive} IS NULL`)
       .orderBy(desc(invoices.createdAt));
 
     return result as InvoiceWithDetails[];
   }
 
   async getAllInvoices(): Promise<InvoiceWithDetails[]> {
+    const result = await db
+      .select({
+        id: invoices.id,
+        userName: invoices.userName,
+        invoiceDate: invoices.invoiceDate,
+        supplierId: invoices.supplierId,
+        supplierName: suppliers.name,
+        category: invoices.category,
+        amountTTC: invoices.amountTTC,
+        vatApplicable: invoices.vatApplicable,
+        amountHT: invoices.amountHT,
+        description: invoices.description,
+        paymentType: invoices.paymentType,
+        projectId: invoices.projectId,
+        projectNumber: projects.number,
+        projectName: projects.name,
+        fileName: invoices.fileName,
+        filePath: invoices.filePath,
+        driveFileId: invoices.driveFileId,
+        createdAt: invoices.createdAt,
+      })
+      .from(invoices)
+      .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
+      .leftJoin(projects, eq(invoices.projectId, projects.id))
+      .where(isNull(invoices.archive))
+      .orderBy(desc(invoices.createdAt));
+
+    return result as InvoiceWithDetails[];
+  }
+
+  async getAllInvoicesIncludingArchived(): Promise<InvoiceWithDetails[]> {
     const result = await db
       .select({
         id: invoices.id,

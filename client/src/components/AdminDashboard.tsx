@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Trash2, Lock, Database } from "lucide-react";
+import { Download, Archive, Lock, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -73,14 +73,14 @@ export function AdminDashboard({ onExportCSV, onExportAxonaut, onResetDatabase, 
     try {
       await onResetDatabase();
       toast({
-        title: "Base de données réinitialisée",
-        description: "Toutes les factures ont été supprimées",
+        title: "Données archivées avec succès",
+        description: "Les factures ont été archivées",
       });
       setResetDialogOpen(false);
     } catch (error) {
       toast({
         title: "Erreur",
-        description: "Impossible de réinitialiser la base de données",
+        description: "Impossible d'archiver les données",
         variant: "destructive",
       });
     } finally {
@@ -150,9 +150,9 @@ export function AdminDashboard({ onExportCSV, onExportAxonaut, onResetDatabase, 
                 <Database className="h-6 w-6 text-destructive" />
               </div>
               <div>
-                <CardTitle className="text-destructive">Zone dangereuse</CardTitle>
+                <CardTitle className="text-destructive">Archivage des données</CardTitle>
                 <CardDescription className="mt-1">
-                  Réinitialiser toutes les données
+                  Archiver les factures actives
                 </CardDescription>
               </div>
             </div>
@@ -164,8 +164,8 @@ export function AdminDashboard({ onExportCSV, onExportAxonaut, onResetDatabase, 
               className="w-full h-12"
               data-testid="button-reset-database"
             >
-              <Trash2 className="h-5 w-5 mr-2" />
-              Réinitialiser la base de données
+              <Archive className="h-5 w-5 mr-2" />
+              Archiver les données
             </Button>
           </CardContent>
         </Card>
@@ -189,8 +189,8 @@ export function AdminDashboard({ onExportCSV, onExportAxonaut, onResetDatabase, 
             <span className="font-medium">Export formaté pour import dans Axonaut</span>
           </div>
           <div className="flex justify-between py-2">
-            <span className="text-muted-foreground">Réinitialisation</span>
-            <span className="font-medium">Supprime toutes les factures (BDD + Google Drive)</span>
+            <span className="text-muted-foreground">Archivage</span>
+            <span className="font-medium">Archive les factures actives (marque comme archivées + déplace vers archive_YYMMDD)</span>
           </div>
         </CardContent>
       </Card>
@@ -199,19 +199,19 @@ export function AdminDashboard({ onExportCSV, onExportAxonaut, onResetDatabase, 
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-destructive">
-              Réinitialiser la base de données ?
+              Archiver les données ?
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <p className="font-semibold">
-                Cette action est IRRÉVERSIBLE et supprimera :
+                Cette action archivera les factures actives :
               </p>
               <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>Toutes les factures de tous les utilisateurs</li>
-                <li>Tous les fichiers sur Google Drive</li>
-                <li>Toutes les données associées</li>
+                <li>Les factures seront marquées comme archivées dans la base de données</li>
+                <li>Les fichiers seront déplacés vers archive_YYMMDD dans Google Drive</li>
+                <li>Les factures archivées ne seront plus visibles dans le suivi</li>
               </ul>
               <p className="mt-4 text-destructive font-medium">
-                Êtes-vous absolument certain(e) de vouloir continuer ?
+                Êtes-vous certain(e) de vouloir continuer ?
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -223,7 +223,7 @@ export function AdminDashboard({ onExportCSV, onExportAxonaut, onResetDatabase, 
               className="bg-destructive hover:bg-destructive/90"
               data-testid="button-confirm-reset"
             >
-              {isResetting ? "Suppression..." : "Oui, tout supprimer"}
+              {isResetting ? "Archivage..." : "Oui, archiver"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
