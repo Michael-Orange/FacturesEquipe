@@ -151,7 +151,7 @@ export default function InvoiceEdit() {
   // Calculate recent and top volume suppliers
   const recentSuppliers: Supplier[] = [];
   const topVolumeSuppliers = suppliers
-    .filter((s) => s.total && parseFloat(s.total) > 0)
+    .filter((s) => s.total && parseFloat(s.total) > 0 && s.name !== "Total Energies")
     .sort((a, b) => parseFloat(b.total || "0") - parseFloat(a.total || "0"))
     .slice(0, 5);
 

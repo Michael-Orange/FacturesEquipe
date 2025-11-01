@@ -18,7 +18,7 @@ import {
   type InsertAdminConfig,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql, inArray, isNull } from "drizzle-orm";
+import { eq, desc, sql, inArray, isNull, ne } from "drizzle-orm";
 
 export interface IStorage {
   // User tokens
@@ -97,6 +97,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(suppliers)
+      .where(ne(suppliers.name, "Total Energies"))
       .orderBy(desc(suppliers.total))
       .limit(limit);
   }
