@@ -46,6 +46,7 @@ export const invoices = pgTable("invoices", {
   fileName: text("file_name").notNull(),
   filePath: text("file_path").notNull(), // Google Drive path/ID
   driveFileId: text("drive_file_id").notNull(),
+  archive: varchar("archive"), // YYMMDD format (e.g., "251101"), null if not archived
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
