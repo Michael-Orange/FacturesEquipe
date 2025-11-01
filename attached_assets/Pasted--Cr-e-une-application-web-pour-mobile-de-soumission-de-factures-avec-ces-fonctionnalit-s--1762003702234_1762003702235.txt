@@ -1,0 +1,399 @@
+
+
+
+
+Crée une application web (pour mobile) de soumission de factures avec ces fonctionnalités :
+
+
+
+
+
+ACCÈS :
+
+- 3 URLs différentes avec des tokens uniques (un par membre d'équipe)
+
+- Quand quelqu'un visite son URL, il voit directement le formulaire avec son nom pré-rempli
+
+- Si le token est invalide, afficher "Accès refusé"
+
+
+
+FORMULAIRE À CRÉER :
+
+- Nom (pré-rempli automatiquement selon le token) : 3 choix Michael, Marine, Fatou
+
+- Date de la facture : Date préremplie par défaut à la date du jour
+
+- Fournisseur : Liste déroulante (fichier CSVFournisseur) + possibilité de créer un fournisseur si besoin. Lors de la création vérifier qu'il n'existe aps avec une orthographe proche et confirmer avec le user la création d'un nouveau fournisseur. Voir section FOURNISSEUR
+
+- Catégorie (menu déroulant : Restauration, Essence, Fourniture Matériaux, Achats Prestas, Transport de matériel, Hébergement, Telephone/Internet, Autre)
+
+- Montant TTC : champs libre (chiffre uniquement)
+
+- TVA applicable : Oui / Non (champs à ne pas afficher si Restauration)
+
+- Montant HT (optionnel, uniquement si TVA Oui)
+
+- Description
+
+- Type de réglement (Wave, Espèces) ; Ajouter uniquement pour Marine et Michael les choix en plus (Espèces remboursés par Wave Business)
+
+- Projets : (uploader un fichier CSV Projets)
+
+- Upload de fichier (PDF ou image de la facture)
+
+
+
+Pour els upload projets et fournisseurs, c'est juste à la création de l'app. Ensuite ces données doivent etre dans la BDD de replit et plus utiliser les CSV. 
+
+
+
+FOURNISSEURS : 
+
+GESTION DES FOURNISSEURS - Besoin fonctionnel
+
+Champ "Fournisseur" dans le formulaire
+
+1. Champ de recherche intelligent
+
+
+
+
+
+Afficher un champ de recherche avec placeholder "🔍 Rechercher un fournisseur..."
+
+
+
+Au fur et à mesure de la saisie, afficher les suggestions correspondantes (maximum 10 résultats)
+
+
+
+La recherche doit être tolérante aux fautes d'orthographe (fuzzy search)
+
+
+
+Quand l'utilisateur sélectionne un fournisseur, le champ se remplit avec le nom exact
+
+2. Raccourcis rapides - Section "Mes derniers"
+
+
+
+
+
+Afficher les 5 derniers fournisseurs utilisés par l'utilisateur connecté
+
+
+
+Basé sur l'historique personnel de ses factures soumises
+
+
+
+Cliquable pour sélection rapide
+
+
+
+Si l'utilisateur n'a pas d'historique, ne pas afficher cette section
+
+3. Raccourcis rapides - Section "Plus gros volumes"
+
+
+
+
+
+Afficher les 5 fournisseurs avec les plus gros montants dans la colonne "total" du CSV
+
+
+
+Ne pas afficher les montants
+
+
+
+Cliquable pour sélection rapide
+
+
+
+Cette liste est la même pour tous les utilisateurs
+
+4. Bouton "Nouveau fournisseur"
+
+
+
+
+
+Bouton distinct : [+ Nouveau fournisseur]
+
+
+
+Au clic, ouvrir un champ de saisie libre
+
+
+
+Quand l'utilisateur tape le nom du nouveau fournisseur :
+
+
+
+
+
+Vérifier automatiquement s'il existe un fournisseur avec un nom similaire dans le CSV
+
+
+
+Si oui, afficher une popup de confirmation :
+
+
+
+"⚠️ Un fournisseur similaire existe déjà : [Nom du fournisseur existant]. Voulez-vous utiliser ce fournisseur existant ou créer un nouveau ?"
+
+
+
+Proposer 2 boutons : [Utiliser l'existant] et [Créer quand même]
+
+
+
+Si l'utilisateur confirme la création, ajouter le nouveau fournisseur à la base de données (pas au CSV)
+
+5. Comportement mobile
+
+
+
+
+
+L'interface doit être optimisée pour mobile (écran tactile)
+
+
+
+Les zones cliquables doivent être suffisamment grandes (minimum 44px de hauteur)
+
+
+
+Le champ de recherche doit avoir le focus automatique quand on arrive sur le formulaire
+
+6. Design
+
+
+
+
+
+Les sections "Mes derniers" et "Plus gros volumes" doivent être visuellement distinctes
+
+
+
+PROJETS 
+
+
+
+MENU DÉROULANT PROJETS - Besoin fonctionnel
+
+Champ "Projet/Opération" dans le formulaire
+
+1. Type de champ
+
+
+
+
+
+Utiliser un menu déroulant natif HTML (<select>)
+
+
+
+Optimisé pour mobile (interface tactile native du système)
+
+2. Organisation en 2 groupes
+
+Le menu déroulant doit être organisé en 2 sections distinctes :
+
+Groupe 1 : "🟢 PROJETS ACTIFS 2025"
+
+
+
+
+
+Afficher tous les projets dont le numéro commence par "2025-"
+
+
+
+Trier par numéro décroissant (2025-37 avant 2025-35, etc.)
+
+Groupe 2 : "📋 PROJETS 2024 ET ANTÉRIEURS"
+
+
+
+
+
+Afficher tous les autres projets (2024-, 2012-, etc.)
+
+
+
+Trier par numéro décroissant dans chaque année
+
+
+
+L'option "2024-10 - Divers - Non classé" doit toujours être en dernier de ce groupe
+
+3. Format d'affichage
+
+
+
+
+
+Chaque option doit afficher : Numéro - Nom du projet
+
+
+
+Exemples :
+
+
+
+
+
+2025-37 - HAA Kolda
+
+
+
+2025-35 - MPP
+
+
+
+2024-20 - STEP Rosso
+
+4. Valeur par défaut
+
+
+
+
+
+Le champ doit être vide par défaut (pas de sélection)
+
+
+
+Afficher un placeholder : "Sélectionner un projet..."
+
+
+
+
+
+APRÈS SOUMISSION :
+
+- Sauvegarder toutes les données dans une base de données
+
+- Sauvegarder le fichier uploadé dans google drive. 
+
+Factures de Michael, ID 1WcWKj_xHWlfjBub4GZoQTywKztIFRPlx
+
+Factures de Fatou, ID 1TZU-Reonldk3_ELSDB9LlG_EOI6aKxLA
+
+Factures de Marine, 16rkQSdjnsuzyVJvnW70jM7nkEkHR7_Q2
+
+- Afficher un message de confirmation
+
+- Permettre de soumettre une nouvelle facture
+
+- Envoyer un email à la personne qui a soumis. Utiliser Resend. API Key : re_Xo8cdaZr_EnE3AbNupogapSfSDn6RW3ZY ; envoi de bonjour@filtreplante.com
+
+
+
+PAGE SUIVI pour chaque utilisateur :
+
+- Liste de toutes les factures soumises (tableau avec tous les champs : nom, date, montant, catégorie, description) par l'utilisateur (aucune vue sur les autres utilisateurs)
+
+- Possibilité de télécharger chaque fichier
+
+- Possibilité de supprimer la facture (ca supprime en BDD et ca supprime la photo sur le drive)
+
+
+
+Interface admin (uniquelent Michael) : 
+
+Mot de passe : Fplante@Fac1!
+
+
+
+
+
+Donne la possibilité de télécharger le CSV avec toutes les données de toutes factures des 3 utilisateurs. 
+
+
+
+Donne la possibilité de supprimer toutes les factures et remttre à 0 la BDD Replit. 
+
+
+
+DESIGN :
+
+- Interface propre et moderne
+
+- Responsive (fonctionne sur mobile)
+
+Style de design de FiltrePlante 🎨
+
+Votre application utilise un Material Design moderne avec une identité visuelle basée sur le Teal (couleur turquoise-vert), parfaitement adapté au thème environnemental des filtres plantés.
+
+🎨 Palette de couleurs
+
+Couleur principale :
+
+
+
+
+
+Teal Primary : #157a70 (174° 69% 29%) - utilisé pour l'en-tête, les boutons principaux et les éléments de marque
+
+Couleurs complémentaires :
+
+
+
+
+
+Teal Secondary : #2997aa (191° 63% 41%) - pour les actions secondaires
+
+
+
+Light Green : #edf8f7 (171° 43% 96%) - fond des cartes de résultats
+
+
+
+Beige Earth : #8D6E63 (15° 25% 47%) - labels et sections neutres
+
+✨ Caractéristiques du design
+
+
+
+
+
+Typographie : Police Inter (Google Fonts) - moderne et lisible
+
+
+
+Mode sombre : Support complet avec adaptation automatique de la palette Teal
+
+
+
+Mobile-first : Interface responsive optimisée pour tablettes et mobiles
+
+
+
+Approche utilitaire : Mise en page claire et fonctionnelle pour les professionnels du BTP
+
+
+
+Composants : Bibliothèque shadcn/ui avec Tailwind CSS
+
+📐 Mise en page
+
+
+
+
+
+Desktop : Formulaire à gauche (60%), résultats à droite (40%)
+
+
+
+Mobile : Colonne unique, formulaire puis résultats
+
+
+
+Cartes : Fond vert clair avec coins arrondis (8px)
+
+
+
+Boutons : Hauteur minimum de 56px (cibles tactiles optimales)
