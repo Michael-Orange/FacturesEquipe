@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import { Loader2, AlertCircle, FileText, ArrowLeft } from "lucide-react";
+import { Loader2, AlertCircle, FileText, ArrowLeft, Download } from "lucide-react";
 import { TrackingTable } from "@/components/TrackingTable";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -78,6 +78,36 @@ export default function Tracking() {
     },
   });
 
+  const exportCSVMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/invoices/${userData?.name}/export-csv?token=${token}`);
+      if (!response.ok) throw new Error("Erreur lors de l'export");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mes_factures_${userData?.name.toLowerCase()}_${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Export réussi",
+        description: "Vos factures ont été exportées en CSV",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'exporter les factures",
+        variant: "destructive",
+      });
+    },
+  });
+
   if (!token) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -135,14 +165,25 @@ export default function Tracking() {
               {invoices.length} facture{invoices.length !== 1 ? "s" : ""} soumise{invoices.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => window.location.href = `/${userToken}`}
-            data-testid="button-submit-new"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Nouvelle facture
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => exportCSVMutation.mutate()}
+              disabled={exportCSVMutation.isPending || invoices.length === 0}
+              data-testid="button-export-csv"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              {exportCSVMutation.isPending ? "Export..." : "Exporter CSV"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => window.location.href = `/${userToken}`}
+              data-testid="button-submit-new"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Nouvelle facture
+            </Button>
+          </div>
         </div>
 
         <TrackingTable

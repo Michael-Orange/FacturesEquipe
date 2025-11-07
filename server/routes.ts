@@ -115,6 +115,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Export user invoices as CSV
+  app.get("/api/invoices/:userName/export-csv", async (req: Request, res: Response) => {
+    try {
+      const { userName } = req.params;
+      const token = req.query.token as string;
+
+      // Validate token
+      if (!token) {
+        return res.status(401).json({ message: "Token required" });
+      }
+
+      const userToken = await storage.getUserTokenByToken(token);
+      if (!userToken) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+
+      // Verify that token owner matches the requested userName
+      if (userToken.name !== userName) {
+        return res.status(403).json({ message: "Token does not match user name" });
+      }
+
+      const invoices = await storage.getInvoicesByUser(userName);
+
+      // CSV header
+      const csvHeader = "Date;Fournisseur;Catégorie;Montant TTC;TVA;Montant HT;Description;Mode de paiement;Projet\n";
+      
+      const csvRows = invoices.map((inv) => {
+        const invoiceDate = format(new Date(inv.invoiceDate), "dd/MM/yyyy", { locale: fr });
+        const tva = inv.vatApplicable ? "Oui" : "Non";
+        const montantHT = inv.amountHT || "";
+        const description = inv.description || "";
+        const projet = inv.projectNumber ? `${inv.projectNumber} - ${inv.projectName}` : "";
+
+        return [
+          invoiceDate,
+          inv.supplierName,
+          inv.category,
+          inv.amountTTC,
+          tva,
+          montantHT,
+          description,
+          inv.paymentType,
+          projet,
+        ]
+          .map((field) => `"${field}"`)
+          .join(";");
+      });
+
+      const csv = csvHeader + csvRows.join("\n");
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="mes_factures_${userName.toLowerCase()}_${format(new Date(), "yyyy-MM-dd")}.csv"`);
+      res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
+    } catch (error) {
+      console.error("Error exporting user CSV:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Create invoice with file upload
   app.post("/api/invoices", upload.single("file"), async (req: Request, res: Response) => {
     try {
