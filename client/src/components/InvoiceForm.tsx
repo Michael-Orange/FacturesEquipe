@@ -426,7 +426,6 @@ export function InvoiceForm({
             id="file-upload"
             type="file"
             accept="image/*,application/pdf"
-            capture="environment"
             onChange={handleFileChange}
             className="sr-only"
             data-testid="input-file-upload"

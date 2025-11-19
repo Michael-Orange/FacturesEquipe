@@ -28,6 +28,10 @@ Preferred communication style: Simple, everyday language.
 
 **Key Components:**
 - `InvoiceForm`: Main submission form with validation via react-hook-form and zod
+  - **Mobile Photo Upload**: File input optimized for both iOS and Android
+    - iOS compatibility fix (Nov 2025): Removed `capture` attribute to allow both camera and gallery access
+    - iOS users can now choose "Take Photo" or "Photo Library" from action sheet
+    - Android users retain camera + gallery functionality
 - `SupplierSearch`: Fuzzy search component using Fuse.js for intelligent supplier matching
 - `ProjectSelect`: Grouped project selection (2025 projects vs. older projects)
 - `TrackingTable`: Invoice history display with download/delete capabilities
