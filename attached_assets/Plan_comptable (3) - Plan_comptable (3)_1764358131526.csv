@@ -1,0 +1,19 @@
+Zoho Account ID,Account Name,App Name,Account Code,Description,Account Type,Currency
+7743334000000113495,Fournitures non stockables - Energies,Essence,6053000000,Pour les achats d'énergie qui ne sont pas l'électricité du bureau (ex: carburant pour un groupe électrogène sur un chantier).,Expense,XOF
+7743334000000113503,Achats de petit matériel et outillage,"Petit matériel réutilisable (ex. sceau, pelles, etc)        ",6056000000,"Pour les outils de faible valeur qui ne sont pas des immobilisations (ex: pelles, marteaux, seaux, petits outils de plomberie).",Expense,XOF
+7743334000000113511,Achats d'études et prestations de services,Prestation de services,6057000000,"Pour les services directement liés à vos projets (ex: facture d'un sous-traitant qui travaille sur un chantier, étude de sol, analyses d'eau).
+",Expense,XOF
+7743334000000113191,Transports sur ventes,Transports (ex. camions),6160000000,,Expense,XOF
+7743334000000113295,Voyages et déplacements,Frais de déplacement lié à un projet,6181000000,"Ce compte enregistre tous les frais engagés pour les déplacements professionnels du personnel dans le cadre de l'activité principale de l'entreprise (dont carburant, billet de bus, frais de taxi, avion)
+",Expense,XOF
+7743334000000032023,Transports administratifs,Frais de déplacement non lié à un projet,6183000000,"Son usage est strictement limité aux déplacements qui ne concernent pas directement les chantiers ou les clients.
+",Expense,XOF
+7743334000000000457,Autres entretiens et réparations,Frais de maintenance,6248000000,Maintenance et réparations de vos équipements,Expense,XOF
+7743334000000103251,"Études, recherches et documentation",Frais de formation,6260000000,"Études et documentation pour VOTRE entreprise (pas pour client) : formation technique, logiciels de calcul, etc.",Expense,XOF
+7743334000000000403,Autres charges de publicité et RP,"Support publicitaire, impression, etc. ",6278000000,"Vos dépenses en activités promotionnelles promotion, de marketing et publicitaires (publicités Web, présentations commerciales, etc.) sont enregistrés le compte de publicité et marketing.",Expense,XOF
+7743334000000000421,Frais de téléphone,Frais de téléphone,6281000000,Les dépenses en téléphone portable et utilisation du fax sont comptabilisées dans les dépenses téléphoniques.,Expense,XOF
+7743334000000113427,Réceptions,Restaurants,6383000000,"Frais de réception de clients, partenaires et visiteurs : repas d'affaires, réceptions professionnelles, événements d'entreprise.",Expense,XOF
+7743334000000113439,Droits de timbre,Droits de timbre,6462000000,,Expense,XOF
+7743334000000034003,Achats de matières premières et fournitures liées dans la Région,"Tout ce qui se retrouve physiquement dans l'ouvrage final livré au client (graviers, PVC, plantes, pompes, etc.)        ",6021000000,,Cost Of Goods Sold,XOF
+7743334000000034001,Matières premières et fournitures,Stock - achats de matériaux,3210000000,"Stock matériel chantier réutilisable (outils tubes PVC raccords petit matériel non installé)
+",Stock,XOF

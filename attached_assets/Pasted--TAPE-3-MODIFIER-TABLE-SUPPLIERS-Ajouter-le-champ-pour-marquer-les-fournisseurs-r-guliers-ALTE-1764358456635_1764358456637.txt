@@ -1,0 +1,40 @@
+ÉTAPE 3 : MODIFIER TABLE SUPPLIERS
+Ajouter le champ pour marquer les fournisseurs réguliers :
+ALTER TABLE suppliers ADD COLUMN is_regular_supplier BOOLEAN DEFAULT FALSE;
+Ce champ permettra de forcer automatiquement "Facture Fournisseur" pour certains fournisseurs (CCS, Gaffari, Europe Bache, etc.).
+Tu devras ensuite cocher manuellement en BDD les fournisseurs concernés.
+ÉTAPE 4 : MODIFIER TABLE INVOICES
+Ajouter les nouveaux champs pour les factures :
+-- Renommer le champ amount existant
+ALTER TABLE invoices RENAME COLUMN amount TO displayed_amount;
+
+-- Ajouter les nouveaux champs
+ALTER TABLE invoices ADD COLUMN invoice_type VARCHAR(50);
+ALTER TABLE invoices ADD COLUMN invoice_number VARCHAR(100);
+ALTER TABLE invoices ADD COLUMN is_stock_purchase BOOLEAN DEFAULT FALSE;
+ALTER TABLE invoices ADD COLUMN category_id INTEGER REFERENCES categories(id);
+ALTER TABLE invoices ADD COLUMN has_brs BOOLEAN DEFAULT FALSE;
+ALTER TABLE invoices ADD COLUMN real_amount DECIMAL(12,2);
+ÉTAPE 5 : CRÉER INDEX POUR PERFORMANCE
+CREATE INDEX idx_invoices_category_id ON invoices(category_id);
+CREATE INDEX idx_invoices_invoice_type ON invoices(invoice_type);
+CREATE INDEX idx_suppliers_is_regular ON suppliers(is_regular_supplier);
+NOTE IMPORTANTE : ANCIENNES DONNÉES
+Les factures existantes dans la table invoices gardent leur structure actuelle :
+Le champ displayed_amount contiendra les anciennes valeurs de amount
+Les nouveaux champs (invoice_type, category_id, etc.) seront NULL pour les anciennes factures
+Seules les nouvelles factures utiliseront tous les nouveaux champs
+Pas de migration de données nécessaire - l'app doit gérer les deux formats (ancien et nouveau).
+VÉRIFICATIONS POST-MIGRATION
+Exécuter ces requêtes pour vérifier que tout est OK :
+-- Vérifier que les 14 catégories sont bien créées
+SELECT COUNT(*) FROM categories;  -- Doit retourner 14
+
+-- Vérifier la structure de la table invoices
+\d invoices
+
+-- Vérifier la structure de la table suppliers
+\d suppliers
+
+-- Vérifier que les anciennes factures ont toujours leur montant
+SELECT COUNT(*) FROM invoices WHERE displayed_amount IS NOT NULL;

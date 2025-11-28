@@ -1,0 +1,300 @@
+═══════════════════════════════════════════════════════════════════════════════
+📋 REFACTORISATION - EXPORTS AXONAUT (ÉLIMINER DUPLICATION)
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 OBJECTIF
+Éliminer la duplication de code dans les 3 endpoints d'export Axonaut (Michael, Marine, Fatou).
+Actuellement : 3 fonctions identiques de ~70 lignes chacune (210 lignes total).
+Après : 1 fonction commune + 3 routes simples (~50 lignes total).
+
+📊 CONTEXTE
+- 3 endpoints quasi-identiques : /api/admin/export-axonaut-michael, -marine, -fatou
+- Même logique : récupérer factures archivées, générer CSV format Axonaut
+- Maintenance difficile : toute modification doit être faite 3 fois
+- Risque de bugs : oubli de synchronisation entre les 3 versions
+
+═══════════════════════════════════════════════════════════════════════════════
+🛠️ MODIFICATIONS À EFFECTUER
+═══════════════════════════════════════════════════════════════════════════════
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│ ÉTAPE 1 : CRÉER LA FONCTION COMMUNE                                       │
+└───────────────────────────────────────────────────────────────────────────┘
+
+📁 Fichier : server/routes.ts
+
+AJOUTER cette fonction AVANT les routes (vers ligne 600) :
+
+/**
+ * Génère un export CSV format Axonaut pour un utilisateur donné
+ * @param userName - Nom de l'utilisateur (Michael, Marine, ou Fatou)
+ * @param archive - Code archive YYMMDD (ex: "241125")
+ * @returns Buffer du fichier CSV
+ */
+async function generateAxonautExport(userName: string, archive: string): Promise<Buffer> {
+  // Récupérer les factures archivées pour cet utilisateur
+  const invoices = await db
+    .select({
+      invoice: invoices,
+      supplier: suppliers,
+      project: projects,
+    })
+    .from(invoices)
+    .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
+    .leftJoin(projects, eq(invoices.projectId, projects.id))
+    .where(
+      and(
+        eq(invoices.userName, userName),
+        eq(invoices.archive, archive)
+      )
+    )
+    .orderBy(asc(invoices.createdAt));
+
+  if (invoices.length === 0) {
+    throw new Error(`Aucune facture trouvée pour ${userName} avec archive ${archive}`);
+  }
+
+  // Préparer les données au format Axonaut
+  const csvData = invoices.map((row) => {
+    const invoice = row.invoice;
+    const supplier = row.supplier;
+    const project = row.project;
+
+    // Date au format DD/MM/YYYY
+    const invoiceDate = invoice.invoiceDate 
+      ? new Date(invoice.invoiceDate).toLocaleDateString('fr-FR')
+      : '';
+
+    return {
+      'Date': invoiceDate,
+      'Numéro de facture': invoice.invoiceNumber || '',
+      'Fournisseur': supplier?.name || '',
+      'Montant HT': invoice.amountHT?.toString() || '0',
+      'TVA': invoice.tva?.toString() || '0',
+      'Montant TTC': invoice.amountTTC?.toString() || '0',
+      'Projet': project?.name || '',
+      'Description': invoice.description || '',
+      'Statut': invoice.status || 'pending',
+    };
+  });
+
+  // Générer le CSV
+  const parser = new Parser({
+    fields: [
+      'Date',
+      'Numéro de facture', 
+      'Fournisseur',
+      'Montant HT',
+      'TVA',
+      'Montant TTC',
+      'Projet',
+      'Description',
+      'Statut'
+    ],
+    delimiter: ';',
+    withBOM: true, // Pour Excel
+  });
+
+  const csv = parser.parse(csvData);
+  return Buffer.from(csv, 'utf-8');
+}
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│ ÉTAPE 2 : REMPLACER LES 3 ENDPOINTS PAR DES VERSIONS SIMPLIFIÉES          │
+└───────────────────────────────────────────────────────────────────────────┘
+
+📁 Fichier : server/routes.ts
+
+SUPPRIMER les 3 anciennes routes complètes (lignes ~613-822) :
+- app.get("/api/admin/export-axonaut-michael", ...)
+- app.get("/api/admin/export-axonaut-marine", ...)
+- app.get("/api/admin/export-axonaut-fatou", ...)
+
+REMPLACER par ces nouvelles versions simplifiées :
+
+// Export Axonaut Michael
+app.get("/api/admin/export-axonaut-michael", verifyAdminAuth, async (req, res) => {
+  try {
+    const archive = req.query.archive as string;
+    
+    if (!archive) {
+      return res.status(400).json({ message: "Archive parameter is required" });
+    }
+
+    const csvBuffer = await generateAxonautExport("Michael", archive);
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="axonaut_michael_${archive}.csv"`);
+    res.send(csvBuffer);
+  } catch (error) {
+    console.error("Error exporting Axonaut for Michael:", error);
+    const message = error instanceof Error ? error.message : "Failed to export Axonaut data";
+    res.status(500).json({ message });
+  }
+});
+
+// Export Axonaut Marine
+app.get("/api/admin/export-axonaut-marine", verifyAdminAuth, async (req, res) => {
+  try {
+    const archive = req.query.archive as string;
+    
+    if (!archive) {
+      return res.status(400).json({ message: "Archive parameter is required" });
+    }
+
+    const csvBuffer = await generateAxonautExport("Marine", archive);
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="axonaut_marine_${archive}.csv"`);
+    res.send(csvBuffer);
+  } catch (error) {
+    console.error("Error exporting Axonaut for Marine:", error);
+    const message = error instanceof Error ? error.message : "Failed to export Axonaut data";
+    res.status(500).json({ message });
+  }
+});
+
+// Export Axonaut Fatou
+app.get("/api/admin/export-axonaut-fatou", verifyAdminAuth, async (req, res) => {
+  try {
+    const archive = req.query.archive as string;
+    
+    if (!archive) {
+      return res.status(400).json({ message: "Archive parameter is required" });
+    }
+
+    const csvBuffer = await generateAxonautExport("Fatou", archive);
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="axonaut_fatou_${archive}.csv"`);
+    res.send(csvBuffer);
+  } catch (error) {
+    console.error("Error exporting Axonaut for Fatou:", error);
+    const message = error instanceof Error ? error.message : "Failed to export Axonaut data";
+    res.status(500).json({ message });
+  }
+});
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│ ÉTAPE 3 : VÉRIFIER LES IMPORTS                                            │
+└───────────────────────────────────────────────────────────────────────────┘
+
+📁 Fichier : server/routes.ts (en haut du fichier)
+
+S'ASSURER que ces imports sont présents :
+
+import { Parser } from 'json2csv';
+import { eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
+
+Si json2csv n'est pas installé, vérifier dans package.json.
+Normalement il devrait déjà être présent (utilisé dans les anciennes versions).
+
+═══════════════════════════════════════════════════════════════════════════════
+✅ TESTS À EFFECTUER APRÈS MODIFICATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. VÉRIFIER LA COMPILATION
+   - npm run dev
+   - Pas d'erreurs TypeScript
+   - Serveur démarre correctement
+
+2. TESTER CHAQUE ENDPOINT
+   A. Créer des factures archivées pour chaque utilisateur (si pas déjà fait)
+   B. Dans l'interface admin :
+      - Exporter Axonaut pour Michael avec un code archive
+      - Exporter Axonaut pour Marine avec le même code
+      - Exporter Axonaut pour Fatou avec le même code
+   C. Vérifier que les CSV téléchargés :
+      - Ont le bon format (colonnes correctes)
+      - Contiennent les bonnes factures
+      - S'ouvrent correctement dans Excel
+      - Ont le BOM UTF-8 (caractères accentués corrects)
+
+3. TESTER LES CAS D'ERREUR
+   - Appeler l'endpoint sans paramètre archive → doit retourner erreur 400
+   - Appeler avec un archive qui n'existe pas → doit retourner erreur avec message clair
+   - Vérifier que les messages d'erreur sont bien affichés côté admin
+
+4. VÉRIFIER LA GESTION D'ERREURS
+   - Regarder les logs serveur en cas d'erreur
+   - Confirmer que les erreurs sont bien catchées et ne font pas crash le serveur
+
+═══════════════════════════════════════════════════════════════════════════════
+📊 RÉSULTATS ATTENDUS
+═══════════════════════════════════════════════════════════════════════════════
+
+AVANT Refactorisation :
+- 3 fonctions de ~70 lignes chacune = 210 lignes
+- Modifications = 3x le travail
+- Risque de bugs par désynchronisation
+- Difficile à maintenir
+
+APRÈS Refactorisation :
+- 1 fonction commune (~40 lignes) + 3 routes (~10 lignes chacune) = ~70 lignes
+- Gain : -140 lignes (-67%)
+- Modifications = 1 seul endroit
+- Plus facile à tester et débugger
+- Maintenabilité ++
+
+═══════════════════════════════════════════════════════════════════════════════
+🔄 ROLLBACK SI PROBLÈME
+═══════════════════════════════════════════════════════════════════════════════
+
+Si quelque chose ne fonctionne pas :
+
+1. Les exports ne fonctionnent plus :
+   → Vérifier les logs d'erreur
+   → Comparer la fonction generateAxonautExport avec l'ancien code
+   → S'assurer que la query DB est identique
+
+2. Format CSV incorrect :
+   → Vérifier les noms de champs dans Parser
+   → Vérifier le délimiteur (';' pour Excel français)
+   → Vérifier withBOM: true pour UTF-8
+
+3. En dernier recours :
+   → Git revert vers la version précédente
+   → Les 3 anciennes routes fonctionnaient, donc safe
+
+═══════════════════════════════════════════════════════════════════════════════
+💡 AMÉLIORATIONS OPTIONNELLES (BONUS)
+═══════════════════════════════════════════════════════════════════════════════
+
+Si tu veux aller plus loin (pas obligatoire) :
+
+1. ROUTE UNIQUE AVEC PARAMÈTRE
+   Au lieu de 3 routes, faire :
+   
+   app.get("/api/admin/export-axonaut/:userName", verifyAdminAuth, async (req, res) => {
+     const { userName } = req.params;
+     if (!["Michael", "Marine", "Fatou"].includes(userName)) {
+       return res.status(400).json({ message: "Invalid user name" });
+     }
+     // ... utiliser generateAxonautExport(userName, archive)
+   });
+   
+   Gain : Encore -20 lignes, mais change les URLs frontend
+
+2. CACHE DES EXPORTS
+   Mettre en cache les exports générés pour 5 minutes :
+   - Évite de régénérer si téléchargé 2x de suite
+   - Utile si gros volumes
+
+3. LOGS AUDIT
+   Tracer qui exporte quoi et quand :
+   
+   console.log(`[AUDIT] Admin exported Axonaut for ${userName}, archive ${archive}`);
+
+═══════════════════════════════════════════════════════════════════════════════
+📝 NOTES IMPORTANTES
+═══════════════════════════════════════════════════════════════════════════════
+
+- Cette refactorisation NE CHANGE PAS le comportement de l'app
+- Les URLs des endpoints restent identiques → Pas de changement frontend
+- Aucune migration de base de données nécessaire
+- Compatible avec tout le reste du code
+- Pas de breaking changes pour les utilisateurs
+- Temps de dev estimé : 20-30 minutes
+- Gains : Maintenabilité ++, moins de bugs, code plus propre
+
+═══════════════════════════════════════════════════════════════════════════════
