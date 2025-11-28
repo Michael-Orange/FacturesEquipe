@@ -28,6 +28,23 @@ Preferred communication style: Simple, everyday language.
 
 **Key Components:**
 - `InvoiceForm`: Main submission form with validation via react-hook-form and zod
+  - **Phase 2 Enhanced Fields (Nov 2025):**
+    - 14 fields total with conditional display logic
+    - `isStockPurchase` toggle - forces category to "Stock - achats de matériaux"
+    - `categoryId` dropdown - loads 14 Zoho categories from database
+    - `vatApplicable` toggle - disabled for Restaurant/Essence categories
+    - `hasBrs` toggle - shows only for Prestations de services without TVA
+    - `invoiceType` radios - "Dépense" or "Facture Fournisseur"
+    - `invoiceNumber` input - required only for Facture Fournisseur type
+    - Calculated readonly fields: `amountHT` (TTC/1.18), `amountRealTTC` (with BRS: TTC/0.95)
+  - **7 useEffects for Conditional Logic:**
+    1. Stock purchase → Force category to stock
+    2. Category Restaurant/Essence → Force TVA=false
+    3. TVA=true → Calculate and display Montant HT
+    4. Prestations sans TVA → Show BRS field
+    5. BRS=true → Calculate Montant TTC réel
+    6. Amount>=500k OR regular supplier OR BRS → Force "Facture Fournisseur"
+    7. Type "Facture Fournisseur" → Show invoice number field
   - **Mobile Photo Upload**: File input optimized for both iOS and Android
     - iOS compatibility fix (Nov 2025): Removed `capture` attribute to allow both camera and gallery access
     - iOS users can now choose "Take Photo" or "Photo Library" from action sheet
@@ -81,15 +98,20 @@ Preferred communication style: Simple, everyday language.
    - Links to suppliers and projects via foreign keys
    - Stores all invoice metadata and Google Drive file references
    - Tracks payment type with user-specific options:
-     - Fatou: Wave (default), Especes
-     - Michael & Marine: Wave Business (default), Especes, Perso rembourse par Wave Business
+     - Fatou: Wave Business Caisse (default), Espèces
+     - Michael & Marine: Wave Business (default), Espèces, Perso remboursé par Wave Business
    - Conditional VAT fields (hidden for restaurant category)
    - Archive field (varchar, YYMMDD format) for archiving invoices
    - Amount fields (Nov 2025 nomenclature):
      - `amount_display_ttc`: User-entered TTC amount (displayed in UI)
-     - `amount_real_ttc`: Real accounting amount (used when BRS=No)
+     - `amount_real_ttc`: Real accounting amount (calculated when BRS=true as TTC/0.95)
 
-5. **admin_config** - Admin panel configuration
+5. **categories** - Zoho accounting plan categories (14 entries)
+   - Links invoices to Zoho accounting codes
+   - Contains appName (display name), accountName, accountCode
+   - Used for conditional logic (forcing TVA, invoice types)
+
+6. **admin_config** - Admin panel configuration
    - Stores hashed admin password
 
 **Data Initialization:**
