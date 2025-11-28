@@ -1,0 +1,533 @@
+# FORMULAIRE SOUMISSION FACTURES - LOGIQUE CONDITIONNELLE AVANCÉE
+
+## CONTEXTE
+Refonte complète du formulaire de soumission de factures avec logique conditionnelle intelligente pour réduire les erreurs de saisie et aligner sur le plan comptable Filtreplante. Structure BDD déjà en place avec table categories (14 entrées), champs is_regular_supplier sur suppliers, et nouveaux champs sur invoices.
+
+## OBJECTIFS
+1. Réorganiser le formulaire avec 14 champs dont 6 conditionnels
+2. Implémenter le forcing automatique (TVA, Type de facture, Catégorie)
+3. Gérer le calcul automatique HT/TTC avec TVA 18%
+4. Gérer le calcul BRS pour prestations de services
+5. Maintenir la compatibilité avec les 25 factures existantes (format ancien)
+6. NE PAS TOUCHER AUX EXPORTS CSV (à faire plus tard dans une phase séparée)
+
+## ORDRE ET LOGIQUE DES CHAMPS DU FORMULAIRE
+
+### 1. Fournisseur (existant - dropdown)
+- Source : table `suppliers`
+- Afficher : `name`
+- Récupérer en arrière-plan : `is_regular_supplier` (pour logique conditionnelle)
+- Obligatoire
+
+### 2. Montant TTC affiché (FCFA) (existant - remonté et renommé)
+- Type : number input
+- Label : "Montant TTC affiché (FCFA)"
+- Stockage BDD : `amount_display_ttc`
+- Obligatoire
+- Validation : > 0
+- Impact logique : déclenche forcing si >= 500000
+
+### 3. Achat pour le stock ? (NOUVEAU - toggle)
+- Type : toggle Oui/Non
+- Défaut : Non
+- Stockage BDD : `is_stock_purchase`
+- Obligatoire
+
+**LOGIQUE CONDITIONNELLE :**
+- Si Oui → forcer automatiquement Catégorie = "Stock - achats de matériaux" (category_id = celui avec account_code '3210000000')
+- Désactiver le dropdown catégorie (champ 4)
+- Afficher un message : "ℹ️ Catégorie automatique : Stock - achats de matériaux"
+
+### 4. Catégorie (modifié - nouveau dropdown avec BDD)
+- Source : table `categories`
+- Affichage dropdown : `app_name` (nom user-friendly)
+- Stockage BDD : `category_id` (foreign key vers categories.id)
+- Récupérer en arrière-plan : `account_name` et `account_code` (pour logique conditionnelle)
+- Obligatoire
+- Désactivé si "Achat pour le stock" = Oui
+
+**LOGIQUE CONDITIONNELLE (forcing TVA) :**
+- Si catégorie sélectionnée a `account_name = 'Réceptions'` (Restaurants) → forcer TVA = Non (champ 5)
+- Si catégorie sélectionnée a `account_name = 'Fournitures non stockables - Energies'` (Essence) → forcer TVA = Non (champ 5)
+- Dans ces cas, désactiver le toggle TVA et afficher message : "ℹ️ TVA automatiquement NON pour cette catégorie"
+
+**LOGIQUE CONDITIONNELLE (forcing Type de facture) :**
+- Si catégorie = 'Réceptions' (Restaurants) → forcer Type de facture = "Dépense" (champ 8)
+- Si catégorie = 'Fournitures non stockables - Energies' (Essence) → forcer Type de facture = "Dépense" (champ 8)
+
+### 5. TVA applicable (existant - toggle)
+- Type : toggle Oui/Non
+- Défaut : Non
+- Stockage BDD : `has_vat` (champ existant)
+- Obligatoire
+- Peut être désactivé et forcé selon catégorie (voir champ 4)
+
+**LOGIQUE CONDITIONNELLE (affichage Montant HT) :**
+- Si TVA = Oui → afficher le champ 5b (Montant HT calculé)
+- Si TVA = Non → masquer le champ 5b
+
+**LOGIQUE CONDITIONNELLE (affichage BRS) :**
+- Si TVA = Non ET catégorie avec `account_name = 'Achats d'études et prestations de services'` (Prestation de services)
+  → Afficher le champ 6 (BRS mentionné)
+- Sinon → masquer le champ 6
+
+### 5b. Montant HT (NOUVEAU - conditionnel calculé)
+- Type : number (readonly / calculé automatiquement)
+- Label : "Montant HT (18% TVA)"
+- Stockage BDD : `amount_ht`
+- Affiché UNIQUEMENT si : TVA = Oui
+- Calcul automatique en temps réel : `amount_display_ttc / 1.18`
+- Format affichage : séparateur de milliers + " FCFA" (ex: "423 729 FCFA")
+
+**RÈGLE DE CALCUL TVA :**
+- Si TVA = Oui : `amount_ht = amount_display_ttc / 1.18`
+- Si TVA = Non : `amount_ht = NULL` (ou `amount_ht = amount_display_ttc` selon préférence)
+
+**PRÉSENTATION VISUELLE :**
+Afficher 2 lignes sous le champ Montant TTC :
+💰 Montant HT : 423 729 FCFA
+💰 Montant TTC : 500 000 FCFA
+
+### 6. BRS mentionné (NOUVEAU - conditionnel)
+- Type : toggle Oui/Non
+- Défaut : Non
+- Label : "Montant total avec BRS mentionné"
+- Stockage BDD : `has_brs`
+- Affiché UNIQUEMENT si : TVA = Non ET Catégorie = "Prestation de services"
+
+**LOGIQUE CONDITIONNELLE :**
+- Si BRS = Non → afficher le champ 7 (Montant TTC réel)
+- Si BRS = Oui → masquer le champ 7 + forcer Type de facture = "Facture Fournisseur" (champ 8)
+
+### 7. Montant TTC réel (NOUVEAU - conditionnel calculé)
+- Type : number input (readonly / calculé automatiquement)
+- Label : "Montant TTC réel (comptable)"
+- Stockage BDD : `amount_real_ttc`
+- Affiché UNIQUEMENT si : BRS = Non (quand BRS est applicable)
+- Calcul automatique en temps réel : `amount_display_ttc / 0.95`
+- Format affichage : séparateur de milliers + " FCFA" (ex: "526 316 FCFA")
+
+**RÈGLE DE CALCUL BRS :**
+- Par défaut (si BRS non applicable ou BRS = Non) : `amount_real_ttc = amount_display_ttc`
+- Si BRS = Oui : `amount_real_ttc = amount_display_ttc / 0.95`
+
+### 8. Type de Facture (NOUVEAU - avec forcing complexe)
+- Type : radio buttons (2 choix)
+  - "Dépense"
+  - "Facture Fournisseur"
+- Stockage BDD : `invoice_type` (valeurs : 'expense' ou 'supplier_invoice')
+- Obligatoire
+
+**TEXTE DESCRIPTIF à afficher au-dessus des radio buttons :**
+
+"**Facture Fournisseur :** Toute facture **supérieure à 500 000 FCFA** OU **à régler à une date ultérieure** OU provenant d'un **fournisseur régulier avec facture formelle** (ex. Europe Bache, CCS, Gaffari, etc.) OU provenant d'une prestation de service avec BRS applicable (uniquement prestation de service sans facture TVA)
+
+**Dépense :** Toute dépense **inférieure à 500 000 FCFA**, **payée immédiatement** et ne provenant **pas d'un fournisseur régulier** avec facture formelle ou une prestation de service où BRS est applicable"
+
+**LOGIQUE DE FORCING (ordre de priorité - vérifier dans cet ordre) :**
+
+**CAS 1 - FORCER "Facture Fournisseur" (désactiver radio buttons) :**
+1. Si `amount_display_ttc >= 500000` FCFA
+2. OU si `supplier.is_regular_supplier = true`
+3. OU si `has_brs = true`
+
+**CAS 2 - FORCER "Dépense" (désactiver radio buttons) :**
+4. Si catégorie avec `account_name = 'Réceptions'` (Restaurants)
+5. OU si catégorie avec `account_name = 'Fournitures non stockables - Energies'` (Essence)
+
+**CAS 3 - CHOIX LIBRE (activer radio buttons) :**
+- Dans tous les autres cas où les conditions CAS 1 et CAS 2 sont fausses
+- Laisser l'utilisateur choisir entre "Dépense" et "Facture Fournisseur"
+
+**Message visuel :**
+- Si forcé : afficher sous les radio buttons "⚠️ Type de facture déterminé automatiquement selon les critères définis"
+- Si choix libre : ne rien afficher
+
+### 9. Numéro de facture (NOUVEAU - conditionnel)
+- Type : text input
+- Label : "Numéro de facture"
+- Placeholder : "Ex: FAC-2024-001"
+- Stockage BDD : `invoice_number`
+- Affiché et obligatoire UNIQUEMENT si : `invoice_type = 'supplier_invoice'` (Facture Fournisseur)
+- Si Type = "Dépense" → masquer ce champ
+
+### 10. Description (existant)
+- Type : textarea
+- Label : "Description"
+- Stockage BDD : `description`
+- Obligatoire
+- Inchangé
+
+### 11. Date (existant)
+- Type : date picker
+- Label : "Date"
+- Stockage BDD : `date`
+- Obligatoire
+- Inchangé
+
+### 12. Projet (existant)
+- Type : dropdown
+- Source : table `projects`
+- Label : "Projet"
+- Stockage BDD : `project_id`
+- Obligatoire
+- Inchangé
+
+### 13. Type de règlement (existant - MODIFICATION pour Fatou uniquement)
+- Type : dropdown
+- Label : "Type de règlement"
+- Stockage BDD : `payment_method`
+- Obligatoire
+
+**OPTIONS PAR UTILISATEUR :**
+
+**Pour user_id = Fatou (id à identifier) :**
+- "Wave Business Caisse" (nouveau - défaut)
+- "Caisse" (existant)
+- "Espèces" (existant)
+- Ne plus afficher "Wave" pour Fatou
+
+**Pour Michael et Marine (tous les autres users) :**
+- Options inchangées : "Wave Business", "Espèces", "Carte bancaire", etc.
+
+### 14. Upload photo facture (existant)
+- Type : file upload (image)
+- Label : "Photo de la facture"
+- Stockage : Google Drive (comme actuellement)
+- Stockage BDD : `file_url`
+- Obligatoire
+- Inchangé
+
+## MODIFICATIONS BACKEND
+
+### Routes à créer/modifier
+
+#### GET /api/categories (NOUVELLE ROUTE)
+Retourner toutes les catégories pour peupler le dropdown :
+
+**Réponse JSON :**
+```json
+[
+  {
+    "id": 1,
+    "app_name": "Restaurants",
+    "account_name": "Réceptions",
+    "account_code": "6383000000"
+  },
+  ...14 catégories
+]
+Trier par app_name alphabétiquement.
+POST /api/invoices (MODIFIER)
+Validations côté serveur (IMPÉRATIF) :
+Validation forcing Type de facture :
+Si amount_display_ttc >= 500000 → invoice_type DOIT être 'supplier_invoice'
+Si supplier.is_regular_supplier = true → invoice_type DOIT être 'supplier_invoice'
+Si has_brs = true → invoice_type DOIT être 'supplier_invoice'
+Si catégorie = Restaurants ou Essence → invoice_type DOIT être 'expense'
+Si incohérence détectée → retourner erreur 400 "Type de facture incohérent avec les critères"
+Validation numéro de facture :
+Si invoice_type = 'supplier_invoice' → invoice_number obligatoire (non vide)
+Si invoice_type = 'expense' → invoice_number doit être NULL
+Validation BRS :
+has_brs peut être true seulement si TVA = Non ET catégorie = "Prestation de services"
+Calcul amount_ht (TVA 18%) :
+Si has_vat = true : amount_ht = amount_display_ttc / 1.18
+Si has_vat = false : amount_ht = NULL (ou amount_ht = amount_display_ttc selon préférence)
+Toujours recalculer côté serveur (ne pas faire confiance au frontend)
+Calcul amount_real_ttc (BRS) :
+Par défaut : amount_real_ttc = amount_display_ttc
+Si has_brs = true : amount_real_ttc = amount_display_ttc / 0.95
+Toujours recalculer côté serveur (ne pas faire confiance au frontend)
+Validation category_id :
+Si is_stock_purchase = true → category_id DOIT correspondre à "Stock - achats de matériaux"
+Enregistrement en BDD :
+Tous les nouveaux champs doivent être enregistrés :
+amount_display_ttc
+amount_ht (calculé si TVA = Oui)
+amount_real_ttc (calculé si BRS = Oui)
+is_stock_purchase
+category_id
+has_brs
+invoice_type
+invoice_number
+GET /api/invoices (MODIFIER)
+Joindre la table categories pour récupérer app_name et account_name lors de l'affichage des factures.
+Exemple requête SQL :
+SELECT 
+  invoices.*, 
+  categories.app_name, 
+  categories.account_name,
+  suppliers.name as supplier_name,
+  suppliers.is_regular_supplier
+FROM invoices
+LEFT JOIN categories ON invoices.category_id = categories.id
+LEFT JOIN suppliers ON invoices.supplier_id = suppliers.id
+WHERE invoices.user_id = ?
+ORDER BY invoices.date DESC
+Gestion rétrocompatibilité :
+Si category_id IS NULL (anciennes factures) → afficher l'ancienne valeur du champ category (texte libre)
+Si invoice_type IS NULL → ne pas afficher le type (anciennes factures)
+GET /api/suppliers (INCHANGÉ)
+Garder tel quel. Le champ is_regular_supplier sera coché manuellement en BDD pour l'instant (CCS, Gaffari, Europe Bache, etc.).
+NE PAS TOUCHER AUX EXPORTS CSV
+IMPORTANT : Ne pas modifier les exports Axonaut (Michael, Marine, Fatou) dans cette phase.
+Les exports seront adaptés plus tard dans une phase séparée dédiée.
+MODIFICATIONS FRONTEND
+Composant formulaire (InvoiceForm ou similaire)
+État local à gérer (React useState) :
+// Champs de base
+supplierId, amountDisplayTTC, isStockPurchase, categoryId, hasVat, 
+amountHT, hasBRS, amountRealTTC, invoiceType, invoiceNumber, 
+description, date, projectId, paymentMethod, file
+
+// Données récupérées pour logique conditionnelle
+selectedSupplier (avec is_regular_supplier)
+selectedCategory (avec account_name, account_code)
+
+// États UI conditionnels
+showAmountHT (boolean)
+showBRSField (boolean)
+showRealAmountField (boolean)
+showInvoiceNumberField (boolean)
+isCategoryDisabled (boolean)
+isTVADisabled (boolean)
+isInvoiceTypeDisabled (boolean)
+forcedInvoiceType ('expense' | 'supplier_invoice' | null)
+Logique de calcul en temps réel :
+Calcul amount_ht (TVA 18%) :
+useEffect(() => {
+  if (hasVat) {
+    setAmountHT(amountDisplayTTC / 1.18);
+    setShowAmountHT(true);
+  } else {
+    setAmountHT(null); // ou amountDisplayTTC selon préférence
+    setShowAmountHT(false);
+  }
+}, [amountDisplayTTC, hasVat]);
+Calcul amount_real_ttc (BRS) :
+useEffect(() => {
+  if (hasBRS && showBRSField) {
+    setAmountRealTTC(amountDisplayTTC / 0.95);
+  } else {
+    setAmountRealTTC(amountDisplayTTC);
+  }
+}, [amountDisplayTTC, hasBRS, showBRSField]);
+Gestion affichage BRS :
+useEffect(() => {
+  const prestationServicesCategory = categories.find(
+    c => c.account_name === "Achats d'études et prestations de services"
+  );
+  
+  if (!hasVat && categoryId === prestationServicesCategory?.id) {
+    setShowBRSField(true);
+  } else {
+    setShowBRSField(false);
+    setHasBRS(false); // reset si plus applicable
+  }
+}, [hasVat, categoryId]);
+Forcing catégorie si stock :
+useEffect(() => {
+  const stockCategory = categories.find(
+    c => c.account_code === "3210000000"
+  );
+  
+  if (isStockPurchase && stockCategory) {
+    setCategoryId(stockCategory.id);
+    setIsCategoryDisabled(true);
+  } else {
+    setIsCategoryDisabled(false);
+  }
+}, [isStockPurchase]);
+Forcing TVA si catégorie Restaurant/Essence :
+useEffect(() => {
+  const category = categories.find(c => c.id === categoryId);
+  
+  if (category && (
+    category.account_name === 'Réceptions' || 
+    category.account_name === 'Fournitures non stockables - Energies'
+  )) {
+    setHasVat(false);
+    setIsTVADisabled(true);
+  } else {
+    setIsTVADisabled(false);
+  }
+}, [categoryId]);
+Forcing Type de facture (logique complexe) :
+useEffect(() => {
+  const category = categories.find(c => c.id === categoryId);
+  
+  // CAS 1: Forcer Facture Fournisseur
+  if (
+    amountDisplayTTC >= 500000 ||
+    selectedSupplier?.is_regular_supplier ||
+    hasBRS
+  ) {
+    setInvoiceType('supplier_invoice');
+    setForcedInvoiceType('supplier_invoice');
+    setIsInvoiceTypeDisabled(true);
+    return;
+  }
+  
+  // CAS 2: Forcer Dépense
+  if (category && (
+    category.account_name === 'Réceptions' ||
+    category.account_name === 'Fournitures non stockables - Energies'
+  )) {
+    setInvoiceType('expense');
+    setForcedInvoiceType('expense');
+    setIsInvoiceTypeDisabled(true);
+    return;
+  }
+  
+  // CAS 3: Choix libre
+  setForcedInvoiceType(null);
+  setIsInvoiceTypeDisabled(false);
+}, [amountDisplayTTC, selectedSupplier, hasBRS, categoryId]);
+Affichage conditionnel Numéro de facture :
+useEffect(() => {
+  if (invoiceType === 'supplier_invoice') {
+    setShowInvoiceNumberField(true);
+  } else {
+    setShowInvoiceNumberField(false);
+    setInvoiceNumber(''); // reset
+  }
+}, [invoiceType]);
+Affichage des factures (liste/tableau)
+Colonnes à afficher :
+Date
+Fournisseur
+Type (nouveau - badge "Dépense" ou "Facture Fournisseur")
+N° facture (nouveau - si Type = Facture Fournisseur)
+Catégorie (afficher app_name)
+Montant HT (nouveau - si has_vat = true)
+Montant TTC affiché
+Montant TTC réel (nouveau - si différent de affiché)
+Projet
+Actions (voir, modifier, supprimer)
+Gestion anciennes factures :
+Si category_id IS NULL → afficher "Catégorie non définie" ou l'ancien champ category
+Si invoice_type IS NULL → ne pas afficher de badge Type
+Responsive mobile-first
+Garder l'optimisation mobile existante :
+Champs stacked verticalement
+Labels au-dessus des inputs
+Toggles optimisés pour le touch
+Messages d'information clairs et compacts
+POINTS D'ATTENTION CRITIQUES
+1. Performance
+Éviter les re-renders inutiles : utiliser useMemo pour filtrer categories
+Debounce les calculs si nécessaire (peu probable avec divisions simples)
+Index BDD déjà créés : bien les utiliser dans les requêtes jointes
+2. UX - Feedback visuel
+Champs forcés : grisés avec icône 🔒 + tooltip explicatif
+Calculs automatiques : afficher ℹ️ "Calculé automatiquement"
+Champs conditionnels : transitions smooth (fade in/out 200ms)
+Messages d'aide : afficher sous les champs concernés, police plus petite, couleur grise
+Montant HT/TTC : présentation visuelle claire avec icônes 💰
+3. Validation frontend
+Valider en temps réel : montant > 0, numéro facture si requis
+Messages d'erreur clairs sous les champs
+Désactiver le bouton "Soumettre" si formulaire invalide
+4. Validation backend (IMPÉRATIF)
+TOUJOURS recalculer amount_ht et amount_real_ttc côté serveur
+TOUJOURS vérifier les règles de forcing (ne pas faire confiance au frontend)
+Retourner erreurs 400 détaillées si incohérences
+5. Gestion erreurs
+Si catégorie introuvable en BDD → retourner erreur claire
+Si fournisseur introuvable → retourner erreur claire
+Si upload échoue → permettre de réessayer sans perdre les données du formulaire
+6. Rétrocompatibilité
+Ne jamais casser l'affichage des 25 factures existantes
+Les anciennes factures peuvent avoir :
+category_id = NULL (utiliser ancien champ category)
+invoice_type = NULL (ne pas afficher de type)
+amount_display_ttc avec valeur mais amount_ht = NULL ou amount_real_ttc = NULL
+Gérer ces cas dans l'affichage uniquement (pas dans les exports pour l'instant)
+7. Admin - Marquage fournisseurs réguliers
+Pour l'instant : le faire manuellement en BDD
+Fournisseurs à marquer is_regular_supplier = true :
+CCS
+Gaffari
+Europe Bache
+(autres à identifier par Michael)
+Plus tard : créer une interface admin simple (checkbox dans liste fournisseurs)
+8. Précision des calculs
+TVA 18% : arrondir amount_ht à 2 décimales max
+BRS 5% : arrondir amount_real_ttc à 2 décimales max
+Format d'affichage : séparateur de milliers pour la lisibilité (ex: "423 729 FCFA")
+TESTS À EFFECTUER APRÈS IMPLÉMENTATION
+Scénarios de test essentiels
+Test 1 - Calcul TVA :
+Créer facture 500 000 FCFA
+Mettre TVA = Oui
+Vérifier affichage Montant HT = 500 000 / 1.18 = 423 729 FCFA
+Vérifier calcul en temps réel si on change le montant
+Test 2 - Forcing montant > 500k :
+Créer facture avec montant 600 000 FCFA
+Vérifier Type forcé "Facture Fournisseur"
+Vérifier champ Numéro facture affiché et obligatoire
+Test 3 - Forcing fournisseur régulier :
+Marquer un fournisseur is_regular_supplier = true en BDD
+Créer facture 100 000 FCFA avec ce fournisseur
+Vérifier Type forcé "Facture Fournisseur"
+Test 4 - Forcing catégorie Restaurant :
+Créer facture avec catégorie "Restaurants"
+Vérifier TVA forcée NON
+Vérifier Type forcé "Dépense"
+Vérifier champ Numéro facture masqué
+Vérifier Montant HT non affiché
+Test 5 - BRS prestation de services :
+Créer facture 300 000 FCFA
+Sélectionner catégorie "Prestation de services"
+Mettre TVA = Non
+Vérifier champ BRS affiché
+Mettre BRS = Oui
+Vérifier Type forcé "Facture Fournisseur"
+Vérifier Montant TTC réel = 300 000 / 0.95 = 315 789 FCFA
+Test 6 - Achat stock :
+Mettre toggle "Achat pour le stock" = Oui
+Vérifier catégorie forcée "Stock - achats de matériaux"
+Vérifier dropdown catégorie désactivé
+Test 7 - Choix libre :
+Créer facture 150 000 FCFA
+Fournisseur non régulier
+Catégorie autre que Restaurant/Essence
+Vérifier radio buttons Type de facture activés
+Vérifier possibilité de choisir Dépense ou Facture Fournisseur
+Test 8 - TVA + BRS (mutuellement exclusifs) :
+Créer facture Prestation de services
+Mettre TVA = Oui → vérifier BRS non affiché
+Mettre TVA = Non → vérifier BRS affiché
+Vérifier qu'on ne peut pas avoir TVA = Oui ET BRS = Oui en même temps
+Test 9 - Rétrocompatibilité :
+Afficher une ancienne facture (avant migration)
+Vérifier affichage sans erreur
+Vérifier que les nouveaux champs n'apparaissent pas ou sont marqués "N/A"
+Test 10 - Validation backend :
+Tenter d'envoyer facture 600 000 FCFA avec Type = "Dépense" (via API directe)
+Vérifier erreur 400 retournée
+Tenter d'envoyer Facture Fournisseur sans numéro
+Vérifier erreur 400 retournée
+Vérifier que le serveur recalcule bien amount_ht et amount_real_ttc
+Test 11 - Wave Business Caisse pour Fatou :
+Se connecter en tant que Fatou
+Vérifier options : "Wave Business Caisse", "Caisse", "Espèces"
+Vérifier "Wave" absent de la liste
+Se connecter en tant que Michael
+Vérifier options normales (Wave Business, etc.)
+Test 12 - Calculs automatiques temps réel :
+Créer facture avec TVA = Oui, montant 500 000 FCFA
+Vérifier calcul instantané HT : 423 729 FCFA
+Changer montant à 300 000 FCFA
+Vérifier recalcul instantané HT : 254 237 FCFA
+RÉSULTAT ATTENDU FINAL
+Un formulaire de soumission de factures intelligent qui :
+✅ Guide l'utilisateur avec 6 champs conditionnels
+✅ Force automatiquement les bonnes valeurs (3 règles de forcing)
+✅ Calcule automatiquement le montant HT avec TVA 18%
+✅ Calcule le montant TTC réel avec BRS (retenue 5%)
+✅ Aligne parfaitement sur le plan comptable Zoho (14 catégories)
+✅ Réduit drastiquement les erreurs de saisie humaine
+✅ Reste compatible avec les 25 factures existantes
+✅ Fonctionne parfaitement sur mobile (iOS/Android)
+✅ Exports CSV inchangés (modifications à faire plus tard)

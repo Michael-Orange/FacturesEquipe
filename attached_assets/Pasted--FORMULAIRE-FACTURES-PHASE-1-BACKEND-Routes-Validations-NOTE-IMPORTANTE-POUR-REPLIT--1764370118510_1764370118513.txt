@@ -1,0 +1,331 @@
+# FORMULAIRE FACTURES - PHASE 1 : BACKEND (Routes + Validations)
+
+## NOTE IMPORTANTE POUR REPLIT
+On t'a envoyé un brief complet avant, mais on préfère découper en 3 phases pour éviter que tu te perdes entre des logiques contradictoires (forcing TVA, BRS, Type de facture, etc.). Cette phase se concentre UNIQUEMENT sur le backend. Le frontend viendra en Phase 2.
+
+## CONTEXTE
+Préparer le backend pour le nouveau formulaire de soumission de factures. Structure BDD déjà en place avec :
+- Table `categories` (14 entrées du plan comptable)
+- Champ `is_regular_supplier` sur `suppliers`
+- Nouveaux champs sur `invoices` : `invoice_type`, `invoice_number`, `is_stock_purchase`, `category_id`, `has_brs`, `amount_display_ttc`, `amount_ht`, `amount_real_ttc`
+
+## OBJECTIFS PHASE 1
+1. Créer la route GET /api/categories
+2. Modifier la route POST /api/invoices avec calculs et validations serveur
+3. Modifier la route GET /api/invoices pour joindre categories
+4. NE PAS TOUCHER AU FRONTEND (sauf si nécessaire pour tester)
+5. NE PAS TOUCHER AUX EXPORTS CSV
+
+## NOMENCLATURE BDD (IMPORTANT)
+Utiliser `vat_applicable` (pas `has_vat`) - c'est le nom du champ existant dans le schéma.
+
+## TÂCHE 1 : CRÉER ROUTE GET /api/categories
+
+**Endpoint :** `GET /api/categories`
+
+**Fonction :** Retourner toutes les catégories du plan comptable pour peupler les dropdowns frontend.
+
+**Réponse JSON :**
+```json
+[
+  {
+    "id": 1,
+    "app_name": "Restaurants",
+    "account_name": "Réceptions",
+    "account_code": "6383000000"
+  },
+  {
+    "id": 2,
+    "app_name": "Essence",
+    "account_name": "Fournitures non stockables - Energies",
+    "account_code": "6053000000"
+  },
+  ...14 catégories au total
+]
+Spécifications :
+Trier par app_name alphabétiquement
+Pas d'authentification requise (ou selon les règles existantes)
+Retourner uniquement les champs nécessaires (id, app_name, account_name, account_code)
+TÂCHE 2 : MODIFIER ROUTE POST /api/invoices
+Endpoint : POST /api/invoices
+Nouveaux champs acceptés en input :
+amount_display_ttc (number, obligatoire)
+is_stock_purchase (boolean, défaut false)
+category_id (integer, obligatoire - foreign key vers categories.id)
+vat_applicable (boolean, défaut false)
+has_brs (boolean, défaut false)
+invoice_type (string, obligatoire - valeurs : 'expense' ou 'supplier_invoice')
+invoice_number (string, conditionnel)
+VALIDATIONS CÔTÉ SERVEUR (ordre de vérification) :
+Validation 1 : Champs obligatoires
+amount_display_ttc > 0
+category_id existe dans la table categories
+supplier_id existe dans la table suppliers (existant)
+invoice_type est 'expense' ou 'supplier_invoice'
+Retourner erreur 400 si manquant : "Champ [nom] obligatoire"
+Validation 2 : Numéro de facture
+if (invoice_type === 'supplier_invoice') {
+  if (!invoice_number || invoice_number.trim() === '') {
+    return res.status(400).json({ error: "Numéro de facture obligatoire pour les Factures Fournisseur" });
+  }
+} else if (invoice_type === 'expense') {
+  invoice_number = null; // forcer à NULL pour les dépenses
+}
+Validation 3 : Cohérence category_id et is_stock_purchase
+if (is_stock_purchase === true) {
+  const stockCategory = await db.query.categories.findFirst({
+    where: eq(categories.account_code, '3210000000')
+  });
+  
+  if (category_id !== stockCategory?.id) {
+    return res.status(400).json({ 
+      error: "Pour un achat stock, la catégorie doit être 'Stock - achats de matériaux'" 
+    });
+  }
+}
+Validation 4 : BRS uniquement si Prestation de services + TVA Non
+if (has_brs === true) {
+  const category = await db.query.categories.findFirst({
+    where: eq(categories.id, category_id)
+  });
+  
+  if (vat_applicable === true || category?.account_name !== "Achats d'études et prestations de services") {
+    return res.status(400).json({ 
+      error: "BRS applicable uniquement pour Prestation de services sans TVA" 
+    });
+  }
+}
+Validation 5 : Forcing Type de facture (règles métier)
+const supplier = await db.query.suppliers.findFirst({
+  where: eq(suppliers.id, supplier_id)
+});
+
+const category = await db.query.categories.findFirst({
+  where: eq(categories.id, category_id)
+});
+
+// CAS 1 : DOIT être Facture Fournisseur
+if (
+  amount_display_ttc >= 500000 ||
+  supplier?.is_regular_supplier === true ||
+  has_brs === true
+) {
+  if (invoice_type !== 'supplier_invoice') {
+    return res.status(400).json({ 
+      error: "Type de facture doit être 'Facture Fournisseur' (montant >= 500k, fournisseur régulier, ou BRS)" 
+    });
+  }
+}
+
+// CAS 2 : DOIT être Dépense
+if (
+  category?.account_name === 'Réceptions' ||
+  category?.account_name === 'Fournitures non stockables - Energies'
+) {
+  if (invoice_type !== 'expense') {
+    return res.status(400).json({ 
+      error: "Type de facture doit être 'Dépense' pour les catégories Restaurant et Essence" 
+    });
+  }
+}
+CALCULS CÔTÉ SERVEUR (IMPÉRATIF - ne pas faire confiance au frontend) :
+Calcul 1 : amount_ht (TVA 18%)
+let amount_ht = null;
+
+if (vat_applicable === true) {
+  amount_ht = amount_display_ttc / 1.18;
+  // Arrondir à 2 décimales
+  amount_ht = Math.round(amount_ht * 100) / 100;
+} else {
+  amount_ht = null; // ou amount_display_ttc selon préférence
+}
+Calcul 2 : amount_real_ttc (BRS 5%)
+let amount_real_ttc;
+
+if (has_brs === true) {
+  amount_real_ttc = amount_display_ttc / 0.95;
+  // Arrondir à 2 décimales
+  amount_real_ttc = Math.round(amount_real_ttc * 100) / 100;
+} else {
+  amount_real_ttc = amount_display_ttc;
+}
+ENREGISTREMENT EN BDD :
+const newInvoice = await db.insert(invoices).values({
+  user_id,
+  supplier_id,
+  amount_display_ttc,
+  amount_ht, // calculé
+  amount_real_ttc, // calculé
+  is_stock_purchase,
+  category_id,
+  vat_applicable,
+  has_brs,
+  invoice_type,
+  invoice_number,
+  description,
+  date,
+  project_id,
+  payment_method,
+  file_url,
+  created_at: new Date()
+}).returning();
+Garder les champs existants inchangés :
+category (ancien champ texte libre - pour rétrocompatibilité)
+amount (ancien champ montant - pour rétrocompatibilité)
+TÂCHE 3 : MODIFIER ROUTE GET /api/invoices
+Endpoint : GET /api/invoices
+Modification : Joindre la table categories pour récupérer les infos de catégorie.
+Requête SQL (avec Drizzle ORM) :
+const userInvoices = await db
+  .select({
+    // Tous les champs invoices
+    id: invoices.id,
+    user_id: invoices.user_id,
+    supplier_id: invoices.supplier_id,
+    amount_display_ttc: invoices.amount_display_ttc,
+    amount_ht: invoices.amount_ht,
+    amount_real_ttc: invoices.amount_real_ttc,
+    is_stock_purchase: invoices.is_stock_purchase,
+    category_id: invoices.category_id,
+    vat_applicable: invoices.vat_applicable,
+    has_brs: invoices.has_brs,
+    invoice_type: invoices.invoice_type,
+    invoice_number: invoices.invoice_number,
+    description: invoices.description,
+    date: invoices.date,
+    project_id: invoices.project_id,
+    payment_method: invoices.payment_method,
+    file_url: invoices.file_url,
+    created_at: invoices.created_at,
+    
+    // Champs pour rétrocompatibilité
+    category: invoices.category, // ancien champ texte
+    amount: invoices.amount, // ancien champ montant
+    
+    // Jointure categories
+    category_app_name: categories.app_name,
+    category_account_name: categories.account_name,
+    category_account_code: categories.account_code,
+    
+    // Jointure suppliers
+    supplier_name: suppliers.name,
+    supplier_is_regular: suppliers.is_regular_supplier
+  })
+  .from(invoices)
+  .leftJoin(categories, eq(invoices.category_id, categories.id))
+  .leftJoin(suppliers, eq(invoices.supplier_id, suppliers.id))
+  .where(eq(invoices.user_id, userId))
+  .orderBy(desc(invoices.date));
+Gestion rétrocompatibilité dans la réponse :
+const formattedInvoices = userInvoices.map(invoice => ({
+  ...invoice,
+  // Si nouvelle structure, utiliser category_app_name
+  // Sinon utiliser l'ancien champ category (texte libre)
+  display_category: invoice.category_app_name || invoice.category || 'Non définie',
+  
+  // Si nouveaux montants existent, les utiliser
+  // Sinon utiliser ancien champ amount
+  display_amount: invoice.amount_display_ttc || invoice.amount
+}));
+TÂCHE 4 : NE PAS TOUCHER
+Ce qui reste inchangé dans cette phase :
+Routes GET /api/suppliers (garder tel quel)
+Routes exports CSV (ne pas modifier)
+Frontend (ne pas toucher sauf si nécessaire pour tester)
+TESTS À EFFECTUER APRÈS IMPLÉMENTATION
+Test Backend 1 : Route categories
+curl http://localhost:5000/api/categories
+Vérifier : 14 catégories retournées, triées alphabétiquement par app_name.
+Test Backend 2 : POST invoice valide
+POST /api/invoices
+{
+  "supplier_id": 1,
+  "amount_display_ttc": 300000,
+  "is_stock_purchase": false,
+  "category_id": 3,
+  "vat_applicable": false,
+  "has_brs": false,
+  "invoice_type": "expense",
+  "description": "Test",
+  "date": "2024-11-28",
+  "project_id": 1,
+  "payment_method": "Espèces"
+}
+Vérifier :
+Retourne 200 OK
+amount_ht = null
+amount_real_ttc = 300000
+Test Backend 3 : POST avec TVA
+POST /api/invoices
+{
+  "supplier_id": 1,
+  "amount_display_ttc": 500000,
+  "category_id": 3,
+  "vat_applicable": true,
+  "invoice_type": "supplier_invoice",
+  "invoice_number": "FAC-001",
+  ...autres champs
+}
+Vérifier :
+amount_ht = 500000 / 1.18 = 423729.49
+Arrondi à 2 décimales
+Test Backend 4 : POST avec BRS
+POST /api/invoices
+{
+  "supplier_id": 1,
+  "amount_display_ttc": 300000,
+  "category_id": [ID de Prestation de services],
+  "vat_applicable": false,
+  "has_brs": true,
+  "invoice_type": "supplier_invoice",
+  "invoice_number": "FAC-002",
+  ...autres champs
+}
+Vérifier :
+amount_real_ttc = 300000 / 0.95 = 315789.47
+Arrondi à 2 décimales
+Test Backend 5 : Validation forcing > 500k
+POST /api/invoices
+{
+  "amount_display_ttc": 600000,
+  "invoice_type": "expense", // ❌ devrait être supplier_invoice
+  ...autres champs
+}
+Vérifier : Retourne 400 avec message d'erreur.
+Test Backend 6 : Validation numéro facture manquant
+POST /api/invoices
+{
+  "invoice_type": "supplier_invoice",
+  "invoice_number": "", // ❌ vide
+  ...autres champs
+}
+Vérifier : Retourne 400 "Numéro de facture obligatoire".
+Test Backend 7 : GET invoices avec rétrocompatibilité
+curl http://localhost:5000/api/invoices
+Vérifier :
+Les 25 anciennes factures s'affichent correctement
+Les nouvelles factures ont category_app_name rempli
+Pas d'erreurs
+Test Backend 8 : BRS sans prestation de services
+POST /api/invoices
+{
+  "category_id": [ID Restaurant],
+  "vat_applicable": false,
+  "has_brs": true, // ❌ BRS pas applicable pour Restaurant
+  ...autres champs
+}
+Vérifier : Retourne 400 avec message d'erreur.
+POINTS D'ATTENTION
+Calculs serveur TOUJOURS prioritaires - ne jamais faire confiance aux valeurs calculées envoyées par le frontend
+Arrondir à 2 décimales - pour amount_ht et amount_real_ttc
+Rétrocompatibilité - ne pas casser les 25 factures existantes qui ont category = texte et amount
+Messages d'erreur clairs - retourner des messages explicites pour aider le debug frontend
+Logs - ajouter des console.log pour tracer les calculs et validations pendant les tests
+RÉSULTAT ATTENDU PHASE 1
+Backend prêt avec :
+✅ Route GET /api/categories fonctionnelle (14 catégories)
+✅ Route POST /api/invoices avec 5 validations + 2 calculs automatiques
+✅ Route GET /api/invoices avec jointures categories et rétrocompatibilité
+✅ Tous les tests backend passent
+✅ Anciennes factures toujours affichées correctement
+✅ Prêt pour Phase 2 (Frontend)
