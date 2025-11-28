@@ -197,55 +197,150 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userName,
         invoiceDate,
         supplierId,
-        category,
+        category, // Legacy field for backward compatibility
         amountDisplayTTC,
         vatApplicable,
-        amountHT,
         description,
         paymentType,
         projectId,
+        // New fields
+        isStockPurchase,
+        categoryId,
+        hasBrs,
+        invoiceType,
+        invoiceNumber,
       } = req.body;
 
-      // Validate invoice data
-      const parsed = insertInvoiceSchema.safeParse({
-        userName,
-        invoiceDate,
-        supplierId,
-        category,
-        amountDisplayTTC,
-        vatApplicable: vatApplicable === "true",
-        amountHT: amountHT || null,
-        description: description || null,
-        paymentType,
-        projectId: projectId || null,
-      });
+      // Parse boolean and numeric values from form data
+      const parsedAmountDisplayTTC = parseFloat(amountDisplayTTC);
+      const parsedVatApplicable = vatApplicable === "true" || vatApplicable === true;
+      const parsedIsStockPurchase = isStockPurchase === "true" || isStockPurchase === true;
+      const parsedHasBrs = hasBrs === "true" || hasBrs === true;
+      const parsedCategoryId = categoryId ? parseInt(categoryId, 10) : null;
 
-      if (!parsed.success) {
-        console.error("Validation error:", parsed.error);
-        return res.status(400).json({ 
-          message: "Invalid invoice data", 
-          errors: parsed.error.format() 
-        });
+      // ==================== VALIDATION 1: Required fields ====================
+      if (!parsedAmountDisplayTTC || parsedAmountDisplayTTC <= 0) {
+        return res.status(400).json({ message: "Montant TTC obligatoire et doit être supérieur à 0" });
       }
 
-      // Get user token for drive folder ID - token is required
+      if (!supplierId) {
+        return res.status(400).json({ message: "Fournisseur obligatoire" });
+      }
+
+      // Get supplier to validate and check is_regular_supplier
+      const supplier = await storage.getSupplierById(supplierId);
+      if (!supplier) {
+        return res.status(400).json({ message: "Fournisseur introuvable" });
+      }
+
+      // For new invoices with categoryId, validate it exists
+      let categoryData = null;
+      if (parsedCategoryId) {
+        categoryData = await storage.getCategoryById(parsedCategoryId);
+        if (!categoryData) {
+          return res.status(400).json({ message: "Catégorie introuvable" });
+        }
+      }
+
+      // If invoiceType is provided (new form), validate it
+      if (invoiceType && !['expense', 'supplier_invoice'].includes(invoiceType)) {
+        return res.status(400).json({ message: "Type de facture invalide (expense ou supplier_invoice)" });
+      }
+
+      // ==================== VALIDATION 2: Invoice number required for supplier_invoice ====================
+      let finalInvoiceNumber = invoiceNumber;
+      if (invoiceType === 'supplier_invoice') {
+        if (!invoiceNumber || invoiceNumber.trim() === '') {
+          return res.status(400).json({ message: "Numéro de facture obligatoire pour les Factures Fournisseur" });
+        }
+      } else if (invoiceType === 'expense') {
+        finalInvoiceNumber = null; // Force NULL for expenses
+      }
+
+      // ==================== VALIDATION 3: Stock purchase category consistency ====================
+      if (parsedIsStockPurchase && parsedCategoryId) {
+        const stockCategory = await storage.getCategoryByAccountCode('3210000000');
+        if (!stockCategory || parsedCategoryId !== stockCategory.id) {
+          return res.status(400).json({ 
+            message: "Pour un achat stock, la catégorie doit être 'Stock - achats de matériaux'" 
+          });
+        }
+      }
+
+      // ==================== VALIDATION 4: BRS only for Prestation de services + TVA=Non ====================
+      if (parsedHasBrs) {
+        if (parsedVatApplicable) {
+          return res.status(400).json({ 
+            message: "BRS applicable uniquement pour Prestation de services sans TVA" 
+          });
+        }
+        if (categoryData && categoryData.accountName !== "Achats d'études et prestations de services") {
+          return res.status(400).json({ 
+            message: "BRS applicable uniquement pour Prestation de services sans TVA" 
+          });
+        }
+      }
+
+      // ==================== VALIDATION 5: Invoice type forcing rules ====================
+      if (invoiceType && categoryData) {
+        // CASE 1: Must be supplier_invoice
+        const mustBeSupplierInvoice = 
+          parsedAmountDisplayTTC >= 500000 ||
+          supplier.isRegularSupplier === true ||
+          parsedHasBrs === true;
+
+        if (mustBeSupplierInvoice && invoiceType !== 'supplier_invoice') {
+          return res.status(400).json({ 
+            message: "Type de facture doit être 'Facture Fournisseur' (montant >= 500k, fournisseur régulier, ou BRS)" 
+          });
+        }
+
+        // CASE 2: Must be expense for Restaurant/Essence categories
+        const mustBeExpense = 
+          categoryData.accountName === 'Réceptions' ||
+          categoryData.accountName === 'Fournitures non stockables - Energies';
+
+        if (mustBeExpense && invoiceType !== 'expense') {
+          return res.status(400).json({ 
+            message: "Type de facture doit être 'Dépense' pour les catégories Restaurant et Essence" 
+          });
+        }
+      }
+
+      // ==================== SERVER-SIDE CALCULATIONS ====================
+      // Calculate amount_ht (TVA 18%)
+      let calculatedAmountHT: number | null = null;
+      if (parsedVatApplicable) {
+        calculatedAmountHT = Math.round((parsedAmountDisplayTTC / 1.18) * 100) / 100;
+      }
+
+      // Calculate amount_real_ttc (BRS 5%)
+      let calculatedAmountRealTTC: number;
+      if (parsedHasBrs) {
+        calculatedAmountRealTTC = Math.round((parsedAmountDisplayTTC / 0.95) * 100) / 100;
+      } else {
+        calculatedAmountRealTTC = parsedAmountDisplayTTC;
+      }
+
+      console.log("Server-side calculations:", {
+        amountDisplayTTC: parsedAmountDisplayTTC,
+        vatApplicable: parsedVatApplicable,
+        calculatedAmountHT,
+        hasBrs: parsedHasBrs,
+        calculatedAmountRealTTC
+      });
+
+      // ==================== TOKEN VALIDATION ====================
       const userToken = await storage.getUserTokenByToken(req.body.token || "");
       if (!userToken) {
         return res.status(401).json({ message: "Invalid or missing token" });
       }
 
-      // Verify that token owner matches the provided userName
       if (userToken.name !== userName) {
         return res.status(403).json({ message: "Token does not match user name" });
       }
 
       const driveFolderId = userToken.driveFolderId;
-
-      // Get supplier name for file naming
-      const supplier = await storage.getSupplierById(supplierId);
-      if (!supplier) {
-        return res.status(400).json({ message: "Supplier not found" });
-      }
 
       // Generate file name with new format: YYMMDD_Supplier_AmountTTC
       const fileName = generateFileName(
@@ -258,15 +353,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Upload file to Google Drive
       const driveFileId = await uploadFileToDrive(file, driveFolderId, fileName);
 
-      // Create invoice with proper date conversion
+      // Determine category name for legacy field
+      const categoryName = categoryData?.appName || category || "Non définie";
+
+      // Create invoice with all fields
       const invoice = await storage.createInvoice({
-        ...parsed.data,
-        invoiceDate: new Date(parsed.data.invoiceDate),
-        amountDisplayTTC: parsed.data.amountDisplayTTC.toString(),
-        amountHT: parsed.data.amountHT ? parsed.data.amountHT.toString() : null,
+        userName,
+        invoiceDate: new Date(invoiceDate),
+        supplierId,
+        category: categoryName, // Legacy field
+        amountDisplayTTC: parsedAmountDisplayTTC.toString(),
+        vatApplicable: parsedVatApplicable,
+        amountHT: calculatedAmountHT?.toString() || null,
+        description: description || "",
+        paymentType,
+        projectId: projectId || null,
         fileName,
         filePath: driveFileId,
         driveFileId,
+        // New fields
+        isStockPurchase: parsedIsStockPurchase,
+        categoryId: parsedCategoryId,
+        hasBrs: parsedHasBrs,
+        invoiceType: invoiceType || null,
+        invoiceNumber: finalInvoiceNumber || null,
+        amountRealTTC: calculatedAmountRealTTC.toString(),
       });
 
       // Send confirmation email
@@ -275,22 +386,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
          userName === "Marine" ? "marine@filtreplante.com" : 
          "fatou@filtreplante.com");
 
-      // Get project name if projectId is provided
       let projectName: string | null = null;
       if (projectId) {
         const project = await storage.getProjectById(projectId);
         projectName = project ? `${project.number} - ${project.name}` : null;
       }
 
-      // Construct Google Drive file URL
       const driveFileUrl = `https://drive.google.com/file/d/${driveFileId}/view`;
 
       try {
         await sendInvoiceConfirmation(userEmail, userName, userToken.token, {
           supplierName: supplier?.name || "N/A",
-          amount: parseFloat(amountDisplayTTC).toLocaleString("fr-FR"),
+          amount: parsedAmountDisplayTTC.toLocaleString("fr-FR"),
           date: format(new Date(invoiceDate), "d MMMM yyyy", { locale: fr }),
-          category,
+          category: categoryName,
           description: description || null,
           paymentType,
           projectName,

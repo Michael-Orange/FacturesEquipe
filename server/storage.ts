@@ -178,10 +178,12 @@ export class DatabaseStorage implements IStorage {
         invoiceDate: invoices.invoiceDate,
         supplierId: invoices.supplierId,
         supplierName: suppliers.name,
+        supplierIsRegular: suppliers.isRegularSupplier,
         category: invoices.category,
         amountDisplayTTC: invoices.amountDisplayTTC,
         vatApplicable: invoices.vatApplicable,
         amountHT: invoices.amountHT,
+        amountRealTTC: invoices.amountRealTTC,
         description: invoices.description,
         paymentType: invoices.paymentType,
         projectId: invoices.projectId,
@@ -190,15 +192,32 @@ export class DatabaseStorage implements IStorage {
         fileName: invoices.fileName,
         filePath: invoices.filePath,
         driveFileId: invoices.driveFileId,
+        archive: invoices.archive,
         createdAt: invoices.createdAt,
+        // New fields
+        invoiceType: invoices.invoiceType,
+        invoiceNumber: invoices.invoiceNumber,
+        isStockPurchase: invoices.isStockPurchase,
+        categoryId: invoices.categoryId,
+        hasBrs: invoices.hasBrs,
+        // Category join fields
+        categoryAppName: categories.appName,
+        categoryAccountName: categories.accountName,
+        categoryAccountCode: categories.accountCode,
       })
       .from(invoices)
       .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
       .leftJoin(projects, eq(invoices.projectId, projects.id))
+      .leftJoin(categories, eq(invoices.categoryId, categories.id))
       .where(sql`${invoices.userName} = ${userName} AND ${invoices.archive} IS NULL`)
       .orderBy(desc(invoices.createdAt));
 
-    return result as InvoiceWithDetails[];
+    // Add backward compatibility display fields
+    return result.map(inv => ({
+      ...inv,
+      displayCategory: inv.categoryAppName || inv.category || 'Non définie',
+      displayAmount: inv.amountDisplayTTC,
+    })) as InvoiceWithDetails[];
   }
 
   async getAllInvoices(): Promise<InvoiceWithDetails[]> {
@@ -209,10 +228,12 @@ export class DatabaseStorage implements IStorage {
         invoiceDate: invoices.invoiceDate,
         supplierId: invoices.supplierId,
         supplierName: suppliers.name,
+        supplierIsRegular: suppliers.isRegularSupplier,
         category: invoices.category,
         amountDisplayTTC: invoices.amountDisplayTTC,
         vatApplicable: invoices.vatApplicable,
         amountHT: invoices.amountHT,
+        amountRealTTC: invoices.amountRealTTC,
         description: invoices.description,
         paymentType: invoices.paymentType,
         projectId: invoices.projectId,
@@ -221,15 +242,31 @@ export class DatabaseStorage implements IStorage {
         fileName: invoices.fileName,
         filePath: invoices.filePath,
         driveFileId: invoices.driveFileId,
+        archive: invoices.archive,
         createdAt: invoices.createdAt,
+        // New fields
+        invoiceType: invoices.invoiceType,
+        invoiceNumber: invoices.invoiceNumber,
+        isStockPurchase: invoices.isStockPurchase,
+        categoryId: invoices.categoryId,
+        hasBrs: invoices.hasBrs,
+        // Category join fields
+        categoryAppName: categories.appName,
+        categoryAccountName: categories.accountName,
+        categoryAccountCode: categories.accountCode,
       })
       .from(invoices)
       .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
       .leftJoin(projects, eq(invoices.projectId, projects.id))
+      .leftJoin(categories, eq(invoices.categoryId, categories.id))
       .where(isNull(invoices.archive))
       .orderBy(desc(invoices.createdAt));
 
-    return result as InvoiceWithDetails[];
+    return result.map(inv => ({
+      ...inv,
+      displayCategory: inv.categoryAppName || inv.category || 'Non définie',
+      displayAmount: inv.amountDisplayTTC,
+    })) as InvoiceWithDetails[];
   }
 
   async getAllInvoicesIncludingArchived(): Promise<InvoiceWithDetails[]> {
@@ -240,10 +277,12 @@ export class DatabaseStorage implements IStorage {
         invoiceDate: invoices.invoiceDate,
         supplierId: invoices.supplierId,
         supplierName: suppliers.name,
+        supplierIsRegular: suppliers.isRegularSupplier,
         category: invoices.category,
         amountDisplayTTC: invoices.amountDisplayTTC,
         vatApplicable: invoices.vatApplicable,
         amountHT: invoices.amountHT,
+        amountRealTTC: invoices.amountRealTTC,
         description: invoices.description,
         paymentType: invoices.paymentType,
         projectId: invoices.projectId,
@@ -252,14 +291,30 @@ export class DatabaseStorage implements IStorage {
         fileName: invoices.fileName,
         filePath: invoices.filePath,
         driveFileId: invoices.driveFileId,
+        archive: invoices.archive,
         createdAt: invoices.createdAt,
+        // New fields
+        invoiceType: invoices.invoiceType,
+        invoiceNumber: invoices.invoiceNumber,
+        isStockPurchase: invoices.isStockPurchase,
+        categoryId: invoices.categoryId,
+        hasBrs: invoices.hasBrs,
+        // Category join fields
+        categoryAppName: categories.appName,
+        categoryAccountName: categories.accountName,
+        categoryAccountCode: categories.accountCode,
       })
       .from(invoices)
       .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
       .leftJoin(projects, eq(invoices.projectId, projects.id))
+      .leftJoin(categories, eq(invoices.categoryId, categories.id))
       .orderBy(desc(invoices.createdAt));
 
-    return result as InvoiceWithDetails[];
+    return result.map(inv => ({
+      ...inv,
+      displayCategory: inv.categoryAppName || inv.category || 'Non définie',
+      displayAmount: inv.amountDisplayTTC,
+    })) as InvoiceWithDetails[];
   }
 
   async getInvoiceById(id: string): Promise<Invoice | undefined> {

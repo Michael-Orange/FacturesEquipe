@@ -144,6 +144,14 @@ export type InsertAdminConfig = z.infer<typeof insertAdminConfigSchema>;
 // Invoice with joined data for frontend
 export type InvoiceWithDetails = Invoice & {
   supplierName: string;
+  supplierIsRegular?: boolean;
   projectNumber?: string;
   projectName?: string;
+  // Category join fields
+  categoryAppName?: string;
+  categoryAccountName?: string;
+  categoryAccountCode?: string;
+  // Computed display fields for backward compatibility
+  displayCategory?: string;
+  displayAmount?: string;
 };
