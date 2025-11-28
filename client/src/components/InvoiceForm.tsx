@@ -2,12 +2,13 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Upload, FileText, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, CheckCircle2, Info, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -19,11 +20,13 @@ import { Card } from "@/components/ui/card";
 import { SupplierSearch } from "./SupplierSearch";
 import { ProjectSelect } from "./ProjectSelect";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 
 interface Supplier {
   id: string;
   name: string;
   total?: string;
+  isRegularSupplier?: boolean;
 }
 
 interface Project {
@@ -31,6 +34,17 @@ interface Project {
   number: string;
   name: string;
   startDate?: string | null;
+}
+
+interface Category {
+  id: number;
+  zohoAccountId: string;
+  accountName: string;
+  appName: string;
+  accountCode: string;
+  description: string | null;
+  accountType: string;
+  currency: string;
 }
 
 interface InvoiceFormProps {
@@ -46,40 +60,36 @@ interface InvoiceFormProps {
 const invoiceFormSchema = z.object({
   invoiceDate: z.string().min(1, "La date est requise"),
   supplierId: z.string().min(1, "Le fournisseur est requis"),
-  category: z.string().min(1, "La catégorie est requise"),
   amountDisplayTTC: z.string().min(1, "Le montant TTC est requis"),
-  vatApplicable: z.enum(["true", "false"]),
-  amountHT: z.string().optional(),
+  isStockPurchase: z.boolean(),
+  categoryId: z.string().min(1, "La catégorie est requise"),
+  vatApplicable: z.boolean(),
+  hasBrs: z.boolean(),
+  invoiceType: z.enum(["expense", "supplier_invoice"]),
+  invoiceNumber: z.string().optional(),
   description: z.string().min(1, "La description est requise"),
   paymentType: z.string().min(1, "Le type de règlement est requis"),
   projectId: z.string().optional(),
 }).refine(
   (data) => {
-    // Montant HT requis si TVA = Oui ET catégorie != Restauration
-    if (data.vatApplicable === "true" && data.category !== "Restauration, boissons et petits achats alimentaires" && (!data.amountHT || data.amountHT.trim() === "")) {
+    if (data.invoiceType === "supplier_invoice" && (!data.invoiceNumber || data.invoiceNumber.trim() === "")) {
       return false;
     }
     return true;
   },
   {
-    message: "Le montant HT est requis quand la TVA est applicable",
-    path: ["amountHT"],
+    message: "Le numéro de facture est requis pour les Factures Fournisseur",
+    path: ["invoiceNumber"],
   }
 );
 
 export type InvoiceFormData = z.infer<typeof invoiceFormSchema>;
 
-const CATEGORIES = [
-  "Fourniture Matériaux",
-  "Achats Prestas",
-  "Restauration, boissons et petits achats alimentaires",
-  "Transport de personnes",
-  "Transport de matériel",
-  "Telephone/Internet",
-  "Essence",
-  "Hébergement",
-  "Autre",
-];
+const formatAmount = (amount: number | string | null): string => {
+  if (!amount) return "0";
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  return Math.round(num).toLocaleString("fr-FR");
+};
 
 export function InvoiceForm({
   userName,
@@ -95,60 +105,193 @@ export function InvoiceForm({
   const [isSuccess, setIsSuccess] = useState(false);
   const { toast } = useToast();
 
-  const canUseWaveBusiness = userName === "Michael" || userName === "Marine";
-  const defaultPaymentType = canUseWaveBusiness ? "Wave Business" : "Wave";
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+
+  const [amountHT, setAmountHT] = useState<number | null>(null);
+  const [amountRealTTC, setAmountRealTTC] = useState<number | null>(null);
+
+  const [showAmountHT, setShowAmountHT] = useState(false);
+  const [showBRSField, setShowBRSField] = useState(false);
+  const [showRealAmountField, setShowRealAmountField] = useState(false);
+  const [showInvoiceNumberField, setShowInvoiceNumberField] = useState(false);
+  const [isCategoryDisabled, setIsCategoryDisabled] = useState(false);
+  const [isTVADisabled, setIsTVADisabled] = useState(false);
+  const [isInvoiceTypeDisabled, setIsInvoiceTypeDisabled] = useState(false);
+
+  const { data: categories = [] } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+  });
+
+  const isFatou = userName === "Fatou";
+  const defaultPaymentType = isFatou ? "Wave Business Caisse" : "Wave Business";
 
   const form = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: {
       invoiceDate: new Date().toISOString().split("T")[0],
       supplierId: "",
-      category: "Fourniture Matériaux",
       amountDisplayTTC: "",
-      vatApplicable: "false",
-      amountHT: "",
+      isStockPurchase: false,
+      categoryId: "",
+      vatApplicable: false,
+      hasBrs: false,
+      invoiceType: "expense",
+      invoiceNumber: "",
       description: "",
       paymentType: defaultPaymentType,
       projectId: "",
     },
   });
 
-  const category = form.watch("category");
-  const vatApplicable = form.watch("vatApplicable");
   const supplierId = form.watch("supplierId");
   const amountDisplayTTC = form.watch("amountDisplayTTC");
-  const amountHT = form.watch("amountHT");
+  const isStockPurchase = form.watch("isStockPurchase");
+  const categoryId = form.watch("categoryId");
+  const vatApplicable = form.watch("vatApplicable");
+  const hasBrs = form.watch("hasBrs");
+  const invoiceType = form.watch("invoiceType");
 
-  // Validation en temps réel du Montant HT
+  const handleSupplierChange = (id: string) => {
+    form.setValue("supplierId", id);
+    const supplier = suppliers.find((s) => s.id === id);
+    setSelectedSupplier(supplier || null);
+  };
+
+  const handleCategoryChange = (id: string) => {
+    form.setValue("categoryId", id);
+    const category = categories.find((c) => c.id === parseInt(id));
+    setSelectedCategory(category || null);
+  };
+
   useEffect(() => {
-    if (vatApplicable === "true" && category !== "Restauration, boissons et petits achats alimentaires" && amountDisplayTTC && amountHT) {
-      const ttc = parseFloat(amountDisplayTTC);
-      const ht = parseFloat(amountHT);
-      
-      if (!isNaN(ttc) && !isNaN(ht) && ttc > 0) {
-        const expectedHT = ttc / 1.18;
-        const difference = Math.abs(ht - expectedHT);
-        const percentDifference = (difference / expectedHT) * 100;
-        
-        // Si différence > 2%, afficher un avertissement
-        if (percentDifference > 2) {
-          toast({
-            title: "Vérification du montant HT",
-            description: `Le montant HT renseigné (${ht.toFixed(2)} FCFA) diffère du calcul attendu (${expectedHT.toFixed(2)} FCFA). Veuillez vérifier votre saisie.`,
-            variant: "default",
-          });
-        }
-      }
+    if (!categories.length) return;
+
+    const stockCategory = categories.find(
+      (c) => c.accountCode === "3210000000"
+    );
+
+    if (isStockPurchase && stockCategory) {
+      form.setValue("categoryId", stockCategory.id.toString());
+      setSelectedCategory(stockCategory);
+      setIsCategoryDisabled(true);
+    } else {
+      setIsCategoryDisabled(false);
     }
-  }, [amountHT, amountDisplayTTC, vatApplicable, category, toast]);
+  }, [isStockPurchase, categories, form]);
+
+  useEffect(() => {
+    if (!selectedCategory) {
+      setIsTVADisabled(false);
+      return;
+    }
+
+    const accountName = selectedCategory.accountName;
+
+    if (
+      accountName === "Réceptions" ||
+      accountName === "Fournitures non stockables - Energies"
+    ) {
+      form.setValue("vatApplicable", false);
+      setIsTVADisabled(true);
+    } else {
+      setIsTVADisabled(false);
+    }
+  }, [selectedCategory, form]);
+
+  useEffect(() => {
+    const amount = parseFloat(amountDisplayTTC) || 0;
+    if (vatApplicable && amount > 0) {
+      const ht = amount / 1.18;
+      setAmountHT(ht);
+      setShowAmountHT(true);
+    } else {
+      setAmountHT(null);
+      setShowAmountHT(false);
+    }
+  }, [vatApplicable, amountDisplayTTC]);
+
+  useEffect(() => {
+    if (!selectedCategory) {
+      setShowBRSField(false);
+      form.setValue("hasBrs", false);
+      return;
+    }
+
+    const accountName = selectedCategory.accountName;
+    const isPrestationServices = accountName === "Achats d'études et prestations de services";
+
+    if (!vatApplicable && isPrestationServices) {
+      setShowBRSField(true);
+    } else {
+      setShowBRSField(false);
+      form.setValue("hasBrs", false);
+      setAmountRealTTC(null);
+      setShowRealAmountField(false);
+    }
+  }, [vatApplicable, selectedCategory, form]);
+
+  useEffect(() => {
+    const amount = parseFloat(amountDisplayTTC) || 0;
+
+    if (!showBRSField || amount <= 0) {
+      setAmountRealTTC(null);
+      setShowRealAmountField(false);
+      return;
+    }
+
+    if (hasBrs) {
+      const realTTC = amount / 0.95;
+      setAmountRealTTC(realTTC);
+      setShowRealAmountField(true);
+    } else {
+      setAmountRealTTC(amount);
+      setShowRealAmountField(false);
+    }
+  }, [hasBrs, showBRSField, amountDisplayTTC]);
+
+  useEffect(() => {
+    const amount = parseFloat(amountDisplayTTC) || 0;
+    const accountName = selectedCategory?.accountName;
+
+    if (
+      amount >= 500000 ||
+      selectedSupplier?.isRegularSupplier === true ||
+      hasBrs === true
+    ) {
+      form.setValue("invoiceType", "supplier_invoice");
+      setIsInvoiceTypeDisabled(true);
+      return;
+    }
+
+    if (
+      selectedCategory &&
+      (accountName === "Réceptions" ||
+        accountName === "Fournitures non stockables - Energies")
+    ) {
+      form.setValue("invoiceType", "expense");
+      setIsInvoiceTypeDisabled(true);
+      return;
+    }
+
+    setIsInvoiceTypeDisabled(false);
+  }, [amountDisplayTTC, selectedSupplier, hasBrs, selectedCategory, form]);
+
+  useEffect(() => {
+    if (invoiceType === "supplier_invoice") {
+      setShowInvoiceNumberField(true);
+    } else {
+      setShowInvoiceNumberField(false);
+      form.setValue("invoiceNumber", "");
+    }
+  }, [invoiceType, form]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Accept all image types (including HEIC/HEIF from iPhone) and PDFs
       const isImage = file.type.startsWith("image/");
       const isPDF = file.type === "application/pdf";
-      
+
       if (!isImage && !isPDF) {
         toast({
           title: "Type de fichier non valide",
@@ -178,16 +321,21 @@ export function InvoiceForm({
       form.reset({
         invoiceDate: new Date().toISOString().split("T")[0],
         supplierId: "",
-        category: "Fourniture Matériaux",
         amountDisplayTTC: "",
-        vatApplicable: "false",
-        amountHT: "",
+        isStockPurchase: false,
+        categoryId: "",
+        vatApplicable: false,
+        hasBrs: false,
+        invoiceType: "expense",
+        invoiceNumber: "",
         description: "",
         paymentType: defaultPaymentType,
         projectId: "",
       });
       setSelectedFile(null);
-      
+      setSelectedSupplier(null);
+      setSelectedCategory(null);
+
       setTimeout(() => setIsSuccess(false), 5000);
     } catch (error) {
       toast({
@@ -244,71 +392,36 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="invoiceDate" className="text-base font-medium">
-          Date de la facture
-        </Label>
-        <Input
-          id="invoiceDate"
-          type="date"
-          {...form.register("invoiceDate")}
-          className="h-14 text-base"
-          data-testid="input-invoice-date"
-        />
-        {form.formState.errors.invoiceDate && (
-          <p className="text-sm text-destructive">{form.formState.errors.invoiceDate.message}</p>
-        )}
-      </div>
-
-      <div className="space-y-2">
         <Label className="text-base font-medium">Fournisseur *</Label>
         <SupplierSearch
           suppliers={suppliers}
           recentSuppliers={recentSuppliers}
           topVolumeSuppliers={topVolumeSuppliers}
           value={supplierId}
-          onSelect={(id) => form.setValue("supplierId", id)}
+          onSelect={handleSupplierChange}
           onCreateNew={onCreateSupplier}
         />
         {form.formState.errors.supplierId && (
           <p className="text-sm text-destructive">{form.formState.errors.supplierId.message}</p>
         )}
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="category" className="text-base font-medium">
-          Catégorie *
-        </Label>
-        <Select value={category} onValueChange={(value) => form.setValue("category", value)}>
-          <SelectTrigger id="category" className="h-14 text-base" data-testid="select-category">
-            <SelectValue placeholder="Sélectionner une catégorie..." />
-          </SelectTrigger>
-          <SelectContent>
-            {CATEGORIES.map((cat) => (
-              <SelectItem key={cat} value={cat} data-testid={`option-category-${cat}`}>
-                {cat}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {form.formState.errors.category && (
-          <p className="text-sm text-destructive">{form.formState.errors.category.message}</p>
-        )}
-        {category === "Restauration, boissons et petits achats alimentaires" && (
-          <p className="text-sm text-muted-foreground italic mt-1">
-            ℹ️ La TVA n'est pas applicable sur les frais de restaurants
-          </p>
+        {selectedSupplier?.isRegularSupplier && (
+          <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
+            <Info className="h-4 w-4 flex-shrink-0" />
+            <span>Fournisseur régulier - Facture Fournisseur requise</span>
+          </div>
         )}
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="amountDisplayTTC" className="text-base font-medium">
-          Montant TTC (FCFA) *
+          Montant TTC affiché (FCFA) *
         </Label>
         <Input
           id="amountDisplayTTC"
           type="number"
-          step="0.01"
-          placeholder="0.00"
+          step="1"
+          min="0"
+          placeholder="Ex: 50000"
           {...form.register("amountDisplayTTC")}
           className="h-14 text-base"
           data-testid="input-amount-ttc"
@@ -318,46 +431,174 @@ export function InvoiceForm({
         )}
       </div>
 
-      {category !== "Restauration, boissons et petits achats alimentaires" && (
-        <div className="space-y-4">
-          <Label className="text-base font-medium">TVA applicable</Label>
-          <RadioGroup
-            value={vatApplicable}
-            onValueChange={(value) => form.setValue("vatApplicable", value as "true" | "false")}
-            className="flex gap-6"
-          >
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="true" id="vat-yes" data-testid="radio-vat-yes" />
-              <Label htmlFor="vat-yes" className="cursor-pointer font-normal">
-                Oui
-              </Label>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="isStockPurchase" className="text-base font-medium">
+            Achat pour le stock ?
+          </Label>
+          <Switch
+            id="isStockPurchase"
+            checked={isStockPurchase}
+            onCheckedChange={(checked) => form.setValue("isStockPurchase", checked)}
+            data-testid="switch-stock-purchase"
+          />
+        </div>
+        {isStockPurchase && (
+          <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
+            <Info className="h-4 w-4 flex-shrink-0" />
+            <span>Catégorie automatique : Stock - achats de matériaux</span>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="categoryId" className="text-base font-medium">
+          Catégorie *
+        </Label>
+        <Select
+          value={categoryId}
+          onValueChange={handleCategoryChange}
+          disabled={isCategoryDisabled}
+        >
+          <SelectTrigger id="categoryId" className="h-14 text-base" data-testid="select-category">
+            <SelectValue placeholder="Sélectionner une catégorie..." />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((cat) => (
+              <SelectItem key={cat.id} value={cat.id.toString()} data-testid={`option-category-${cat.id}`}>
+                {cat.appName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {form.formState.errors.categoryId && (
+          <p className="text-sm text-destructive">{form.formState.errors.categoryId.message}</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="vatApplicable" className="text-base font-medium">
+            TVA applicable (18%)
+          </Label>
+          <Switch
+            id="vatApplicable"
+            checked={vatApplicable}
+            onCheckedChange={(checked) => form.setValue("vatApplicable", checked)}
+            disabled={isTVADisabled}
+            data-testid="switch-vat-applicable"
+          />
+        </div>
+        {isTVADisabled && (
+          <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
+            <Info className="h-4 w-4 flex-shrink-0" />
+            <span>TVA automatiquement NON pour cette catégorie</span>
+          </div>
+        )}
+      </div>
+
+      {showAmountHT && amountHT !== null && (
+        <Card className="p-4 bg-muted/50">
+          <div className="space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Montant HT :</span>
+              <span className="font-semibold">{formatAmount(amountHT)} FCFA</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="false" id="vat-no" data-testid="radio-vat-no" />
-              <Label htmlFor="vat-no" className="cursor-pointer font-normal">
-                Non
-              </Label>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Montant TTC :</span>
+              <span className="font-semibold">{formatAmount(amountDisplayTTC)} FCFA</span>
             </div>
-          </RadioGroup>
+          </div>
+        </Card>
+      )}
+
+      {showBRSField && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="hasBrs" className="text-base font-medium">
+              Montant total avec BRS mentionné
+            </Label>
+            <Switch
+              id="hasBrs"
+              checked={hasBrs}
+              onCheckedChange={(checked) => form.setValue("hasBrs", checked)}
+              data-testid="switch-has-brs"
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            La retenue à la source (BRS) de 5% s'applique aux prestations de services sans TVA
+          </p>
         </div>
       )}
 
-      {vatApplicable === "true" && category !== "Restauration, boissons et petits achats alimentaires" && (
+      {showRealAmountField && amountRealTTC !== null && (
+        <Card className="p-4 bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800">
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-amber-800 dark:text-amber-200 font-medium">Montant TTC réel (comptable) :</span>
+              <span className="font-bold text-amber-900 dark:text-amber-100">{formatAmount(amountRealTTC)} FCFA</span>
+            </div>
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Calculé automatiquement avec retenue à la source (BRS 5%)
+            </p>
+          </div>
+        </Card>
+      )}
+
+      <div className="space-y-3">
+        <Label className="text-base font-medium">Type de facture *</Label>
+        <Card className="p-3 bg-muted/30 text-sm">
+          <p className="mb-2">
+            <strong>Facture Fournisseur :</strong> Facture <strong>&gt;500k FCFA</strong>, à régler ultérieurement, 
+            fournisseur régulier (CCS, Europe Bâche...) ou prestation avec BRS
+          </p>
+          <p>
+            <strong>Dépense :</strong> Dépense <strong>&lt;500k FCFA</strong>, payée immédiatement, 
+            pas de fournisseur régulier ni BRS
+          </p>
+        </Card>
+        <RadioGroup
+          value={invoiceType}
+          onValueChange={(value) => form.setValue("invoiceType", value as "expense" | "supplier_invoice")}
+          className="flex gap-6"
+          disabled={isInvoiceTypeDisabled}
+        >
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="expense" id="type-expense" data-testid="radio-type-expense" disabled={isInvoiceTypeDisabled} />
+            <Label htmlFor="type-expense" className={`cursor-pointer font-normal ${isInvoiceTypeDisabled ? "opacity-50" : ""}`}>
+              Dépense
+            </Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="supplier_invoice" id="type-supplier" data-testid="radio-type-supplier" disabled={isInvoiceTypeDisabled} />
+            <Label htmlFor="type-supplier" className={`cursor-pointer font-normal ${isInvoiceTypeDisabled ? "opacity-50" : ""}`}>
+              Facture Fournisseur
+            </Label>
+          </div>
+        </RadioGroup>
+        {isInvoiceTypeDisabled && (
+          <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-950 rounded-md text-sm text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            <span>Type de facture déterminé automatiquement selon les critères définis</span>
+          </div>
+        )}
+      </div>
+
+      {showInvoiceNumberField && (
         <div className="space-y-2">
-          <Label htmlFor="amountHT" className="text-base font-medium">
-            Montant HT (FCFA) *
+          <Label htmlFor="invoiceNumber" className="text-base font-medium">
+            Numéro de facture *
           </Label>
           <Input
-            id="amountHT"
-            type="number"
-            step="0.01"
-            placeholder="0.00"
-            {...form.register("amountHT")}
+            id="invoiceNumber"
+            type="text"
+            placeholder="Ex: FAC-2024-001"
+            {...form.register("invoiceNumber")}
             className="h-14 text-base"
-            data-testid="input-amount-ht"
+            data-testid="input-invoice-number"
           />
-          {form.formState.errors.amountHT && (
-            <p className="text-sm text-destructive">{form.formState.errors.amountHT.message}</p>
+          {form.formState.errors.invoiceNumber && (
+            <p className="text-sm text-destructive">{form.formState.errors.invoiceNumber.message}</p>
           )}
         </div>
       )}
@@ -379,6 +620,28 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
+        <Label htmlFor="invoiceDate" className="text-base font-medium">
+          Date de la facture *
+        </Label>
+        <Input
+          id="invoiceDate"
+          type="date"
+          {...form.register("invoiceDate")}
+          className="h-14 text-base"
+          data-testid="input-invoice-date"
+        />
+        {form.formState.errors.invoiceDate && (
+          <p className="text-sm text-destructive">{form.formState.errors.invoiceDate.message}</p>
+        )}
+      </div>
+
+      <ProjectSelect
+        projects={projects}
+        value={form.watch("projectId") || ""}
+        onChange={(value) => form.setValue("projectId", value)}
+      />
+
+      <div className="space-y-2">
         <Label htmlFor="paymentType" className="text-base font-medium">
           Type de règlement *
         </Label>
@@ -390,18 +653,26 @@ export function InvoiceForm({
             <SelectValue placeholder="Sélectionner un type de règlement..." />
           </SelectTrigger>
           <SelectContent>
-            {canUseWaveBusiness ? (
+            {isFatou ? (
               <>
-                <SelectItem value="Wave Business" data-testid="option-payment-WaveBusiness">Wave Business</SelectItem>
-                <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
-                <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
-                  Perso remboursé par Wave Business
+                <SelectItem value="Wave Business Caisse" data-testid="option-payment-WaveBusinessCaisse">
+                  Wave Business Caisse
+                </SelectItem>
+                <SelectItem value="Espèces" data-testid="option-payment-Especes">
+                  Espèces
                 </SelectItem>
               </>
             ) : (
               <>
-                <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
-                <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
+                <SelectItem value="Wave Business" data-testid="option-payment-WaveBusiness">
+                  Wave Business
+                </SelectItem>
+                <SelectItem value="Espèces" data-testid="option-payment-Especes">
+                  Espèces
+                </SelectItem>
+                <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
+                  Perso remboursé par Wave Business
+                </SelectItem>
               </>
             )}
           </SelectContent>
@@ -410,12 +681,6 @@ export function InvoiceForm({
           <p className="text-sm text-destructive">{form.formState.errors.paymentType.message}</p>
         )}
       </div>
-
-      <ProjectSelect
-        projects={projects}
-        value={form.watch("projectId") || ""}
-        onChange={(value) => form.setValue("projectId", value)}
-      />
 
       <div className="space-y-2">
         <Label htmlFor="file-upload" className="text-base font-medium">

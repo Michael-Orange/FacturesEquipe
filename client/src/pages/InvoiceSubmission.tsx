@@ -62,14 +62,18 @@ export default function InvoiceSubmission() {
       formData.append("token", token!);
       formData.append("invoiceDate", data.invoiceDate);
       formData.append("supplierId", data.supplierId);
-      formData.append("category", data.category);
       formData.append("amountDisplayTTC", data.amountDisplayTTC);
-      formData.append("vatApplicable", data.vatApplicable);
-      if (data.amountHT) formData.append("amountHT", data.amountHT);
-      if (data.description) formData.append("description", data.description);
+      formData.append("vatApplicable", String(data.vatApplicable));
+      formData.append("description", data.description);
       formData.append("paymentType", data.paymentType);
       if (data.projectId) formData.append("projectId", data.projectId);
       formData.append("file", data.file);
+      
+      formData.append("isStockPurchase", String(data.isStockPurchase));
+      formData.append("categoryId", data.categoryId);
+      formData.append("hasBrs", String(data.hasBrs));
+      formData.append("invoiceType", data.invoiceType);
+      if (data.invoiceNumber) formData.append("invoiceNumber", data.invoiceNumber);
 
       const response = await fetch("/api/invoices", {
         method: "POST",
