@@ -307,10 +307,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // ==================== TVA FORCING RULES ====================
+      // Force TVA to false for Restaurant (Réceptions) and Essence categories
+      let finalVatApplicable = parsedVatApplicable;
+      if (categoryData) {
+        const mustForceNoVat = 
+          categoryData.accountName === 'Réceptions' ||
+          categoryData.accountName === 'Fournitures non stockables - Energies';
+        
+        if (mustForceNoVat) {
+          finalVatApplicable = false;
+        }
+      }
+
       // ==================== SERVER-SIDE CALCULATIONS ====================
       // Calculate amount_ht (TVA 18%)
       let calculatedAmountHT: number | null = null;
-      if (parsedVatApplicable) {
+      if (finalVatApplicable) {
         calculatedAmountHT = Math.round((parsedAmountDisplayTTC / 1.18) * 100) / 100;
       }
 
@@ -324,7 +337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("Server-side calculations:", {
         amountDisplayTTC: parsedAmountDisplayTTC,
-        vatApplicable: parsedVatApplicable,
+        vatApplicable: finalVatApplicable,
         calculatedAmountHT,
         hasBrs: parsedHasBrs,
         calculatedAmountRealTTC
@@ -363,7 +376,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         supplierId,
         category: categoryName, // Legacy field
         amountDisplayTTC: parsedAmountDisplayTTC.toString(),
-        vatApplicable: parsedVatApplicable,
+        vatApplicable: finalVatApplicable,
         amountHT: calculatedAmountHT?.toString() || null,
         description: description || "",
         paymentType,
