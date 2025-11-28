@@ -81,10 +81,13 @@ Preferred communication style: Simple, everyday language.
    - Links to suppliers and projects via foreign keys
    - Stores all invoice metadata and Google Drive file references
    - Tracks payment type with user-specific options:
-     - Fatou: Wave (default), Espèces
-     - Michael & Marine: Wave Business (default), Espèces, Perso remboursé par Wave Business
+     - Fatou: Wave (default), Especes
+     - Michael & Marine: Wave Business (default), Especes, Perso rembourse par Wave Business
    - Conditional VAT fields (hidden for restaurant category)
    - Archive field (varchar, YYMMDD format) for archiving invoices
+   - Amount fields (Nov 2025 nomenclature):
+     - `amount_display_ttc`: User-entered TTC amount (displayed in UI)
+     - `amount_real_ttc`: Real accounting amount (used when BRS=No)
 
 5. **admin_config** - Admin panel configuration
    - Stores hashed admin password
