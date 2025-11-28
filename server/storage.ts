@@ -5,6 +5,7 @@ import {
   projects,
   invoices,
   adminConfig,
+  categories,
   type UserToken,
   type InsertUserToken,
   type Supplier,
@@ -16,6 +17,7 @@ import {
   type InvoiceWithDetails,
   type AdminConfig,
   type InsertAdminConfig,
+  type Category,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, sql, inArray, isNull, ne } from "drizzle-orm";
@@ -33,6 +35,11 @@ export interface IStorage {
   getTopVolumeSuppliers(limit: number): Promise<Supplier[]>;
   getRecentSuppliersByUser(userName: string, limit: number): Promise<Supplier[]>;
   createSupplier(supplier: InsertSupplier): Promise<Supplier>;
+
+  // Categories
+  getAllCategories(): Promise<Category[]>;
+  getCategoryById(id: number): Promise<Category | undefined>;
+  getCategoryByAccountCode(accountCode: string): Promise<Category | undefined>;
 
   // Projects
   getAllProjects(): Promise<Project[]>;
@@ -135,6 +142,21 @@ export class DatabaseStorage implements IStorage {
       .values(insertSupplier)
       .returning();
     return supplier;
+  }
+
+  // Categories
+  async getAllCategories(): Promise<Category[]> {
+    return await db.select().from(categories).orderBy(categories.appName);
+  }
+
+  async getCategoryById(id: number): Promise<Category | undefined> {
+    const [category] = await db.select().from(categories).where(eq(categories.id, id));
+    return category || undefined;
+  }
+
+  async getCategoryByAccountCode(accountCode: string): Promise<Category | undefined> {
+    const [category] = await db.select().from(categories).where(eq(categories.accountCode, accountCode));
+    return category || undefined;
   }
 
   // Projects

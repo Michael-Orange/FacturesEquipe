@@ -103,6 +103,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all categories (sorted by app_name)
+  app.get("/api/categories", async (req: Request, res: Response) => {
+    try {
+      const categories = await storage.getAllCategories();
+      res.json(categories);
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Get invoices for a user
   app.get("/api/invoices/:userName", async (req: Request, res: Response) => {
     try {
