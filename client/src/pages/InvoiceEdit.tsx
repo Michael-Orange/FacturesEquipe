@@ -47,7 +47,7 @@ interface Invoice {
   invoiceDate: string;
   supplierId: string;
   category: string;
-  amountTTC: string;
+  amountDisplayTTC: string;
   vatApplicable: boolean;
   amountHT?: string | null;
   description?: string | null;
@@ -110,7 +110,7 @@ export default function InvoiceEdit() {
         invoiceDate: invoice.invoiceDate.split("T")[0],
         supplierId: invoice.supplierId,
         category: invoice.category,
-        amountTTC: invoice.amountTTC,
+        amountDisplayTTC: invoice.amountDisplayTTC,
         vatApplicable: invoice.vatApplicable,
         amountHT: invoice.amountHT || "",
         description: invoice.description || "",
@@ -123,8 +123,8 @@ export default function InvoiceEdit() {
   // Validation en temps réel du Montant HT
   const lastToastTime = useRef<number>(0);
   useEffect(() => {
-    if (formData.vatApplicable && formData.category !== "Restauration, boissons et petits achats alimentaires" && formData.amountTTC && formData.amountHT) {
-      const ttc = parseFloat(formData.amountTTC);
+    if (formData.vatApplicable && formData.category !== "Restauration, boissons et petits achats alimentaires" && formData.amountDisplayTTC && formData.amountHT) {
+      const ttc = parseFloat(formData.amountDisplayTTC);
       const ht = parseFloat(formData.amountHT);
       
       if (!isNaN(ttc) && !isNaN(ht) && ttc > 0) {
@@ -144,7 +144,7 @@ export default function InvoiceEdit() {
         }
       }
     }
-  }, [formData.amountHT, formData.amountTTC, formData.vatApplicable, formData.category, toast]);
+  }, [formData.amountHT, formData.amountDisplayTTC, formData.vatApplicable, formData.category, toast]);
 
   const canUseWaveBusiness = invoice?.userName === "Michael" || invoice?.userName === "Marine";
 
@@ -162,7 +162,7 @@ export default function InvoiceEdit() {
       if (formData.invoiceDate) formDataToSend.append("invoiceDate", formData.invoiceDate);
       if (formData.supplierId) formDataToSend.append("supplierId", formData.supplierId);
       if (formData.category) formDataToSend.append("category", formData.category);
-      if (formData.amountTTC) formDataToSend.append("amountTTC", formData.amountTTC);
+      if (formData.amountDisplayTTC) formDataToSend.append("amountDisplayTTC", formData.amountDisplayTTC);
       formDataToSend.append("vatApplicable", formData.vatApplicable ? "true" : "false");
       if (formData.amountHT) formDataToSend.append("amountHT", formData.amountHT);
       if (formData.description) formDataToSend.append("description", formData.description);
@@ -326,15 +326,15 @@ export default function InvoiceEdit() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="amountTTC" className="text-base font-medium">
+              <Label htmlFor="amountDisplayTTC" className="text-base font-medium">
                 Montant TTC (FCFA) *
               </Label>
               <Input
-                id="amountTTC"
+                id="amountDisplayTTC"
                 type="number"
                 step="0.01"
-                value={formData.amountTTC || ""}
-                onChange={(e) => setFormData({ ...formData, amountTTC: e.target.value })}
+                value={formData.amountDisplayTTC || ""}
+                onChange={(e) => setFormData({ ...formData, amountDisplayTTC: e.target.value })}
                 className="h-14 text-base"
                 data-testid="input-amount-ttc"
               />

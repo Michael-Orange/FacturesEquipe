@@ -51,7 +51,7 @@ export const invoices = pgTable("invoices", {
   invoiceDate: timestamp("invoice_date").notNull(),
   supplierId: varchar("supplier_id").references(() => suppliers.id).notNull(),
   category: text("category").notNull(), // Legacy field - Restauration, Essence, etc.
-  amountTTC: decimal("amount_ttc", { precision: 12, scale: 2 }).notNull(),
+  amountDisplayTTC: decimal("amount_display_ttc", { precision: 12, scale: 2 }).notNull(),
   vatApplicable: boolean("vat_applicable").default(false),
   amountHT: decimal("amount_ht", { precision: 12, scale: 2 }),
   description: text("description").notNull(),
@@ -67,7 +67,7 @@ export const invoices = pgTable("invoices", {
   isStockPurchase: boolean("is_stock_purchase").default(false),
   categoryId: integer("category_id").references(() => categories.id), // Reference to categories table
   hasBrs: boolean("has_brs").default(false), // Has BRS (Bon de Réception de Stock)
-  realAmount: decimal("real_amount", { precision: 12, scale: 2 }), // Real amount for accounting
+  amountRealTTC: decimal("amount_real_ttc", { precision: 12, scale: 2 }), // Real amount for accounting
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -103,7 +103,7 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   createdAt: true,
 }).extend({
   invoiceDate: z.string().or(z.date()),
-  amountTTC: z.string().or(z.number()),
+  amountDisplayTTC: z.string().or(z.number()),
   amountHT: z.string().or(z.number()).optional().nullable(),
   projectId: z.string().optional().nullable(),
   fileName: z.string().optional(),
@@ -115,7 +115,7 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   isStockPurchase: z.boolean().optional(),
   categoryId: z.number().optional().nullable(),
   hasBrs: z.boolean().optional(),
-  realAmount: z.string().or(z.number()).optional().nullable(),
+  amountRealTTC: z.string().or(z.number()).optional().nullable(),
 });
 
 export const insertAdminConfigSchema = createInsertSchema(adminConfig).omit({

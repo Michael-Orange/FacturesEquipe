@@ -63,7 +63,7 @@ export default function InvoiceSubmission() {
       formData.append("invoiceDate", data.invoiceDate);
       formData.append("supplierId", data.supplierId);
       formData.append("category", data.category);
-      formData.append("amountTTC", data.amountTTC);
+      formData.append("amountDisplayTTC", data.amountDisplayTTC);
       formData.append("vatApplicable", data.vatApplicable);
       if (data.amountHT) formData.append("amountHT", data.amountHT);
       if (data.description) formData.append("description", data.description);

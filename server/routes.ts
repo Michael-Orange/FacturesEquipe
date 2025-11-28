@@ -152,7 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           invoiceDate,
           inv.supplierName,
           inv.category,
-          inv.amountTTC,
+          inv.amountDisplayTTC,
           tva,
           montantHT,
           description,
@@ -187,7 +187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invoiceDate,
         supplierId,
         category,
-        amountTTC,
+        amountDisplayTTC,
         vatApplicable,
         amountHT,
         description,
@@ -201,7 +201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invoiceDate,
         supplierId,
         category,
-        amountTTC,
+        amountDisplayTTC,
         vatApplicable: vatApplicable === "true",
         amountHT: amountHT || null,
         description: description || null,
@@ -240,7 +240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fileName = generateFileName(
         invoiceDate,
         supplier.name,
-        amountTTC,
+        amountDisplayTTC,
         file.originalname
       );
 
@@ -251,7 +251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const invoice = await storage.createInvoice({
         ...parsed.data,
         invoiceDate: new Date(parsed.data.invoiceDate),
-        amountTTC: parsed.data.amountTTC.toString(),
+        amountDisplayTTC: parsed.data.amountDisplayTTC.toString(),
         amountHT: parsed.data.amountHT ? parsed.data.amountHT.toString() : null,
         fileName,
         filePath: driveFileId,
@@ -277,7 +277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         await sendInvoiceConfirmation(userEmail, userName, userToken.token, {
           supplierName: supplier?.name || "N/A",
-          amount: parseFloat(amountTTC).toLocaleString("fr-FR"),
+          amount: parseFloat(amountDisplayTTC).toLocaleString("fr-FR"),
           date: format(new Date(invoiceDate), "d MMMM yyyy", { locale: fr }),
           category,
           description: description || null,
@@ -337,7 +337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invoiceDate,
         supplierId,
         category,
-        amountTTC,
+        amountDisplayTTC,
         vatApplicable,
         amountHT,
         description,
@@ -351,7 +351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (invoiceDate) updateData.invoiceDate = new Date(invoiceDate);
       if (supplierId) updateData.supplierId = supplierId;
       if (category) updateData.category = category;
-      if (amountTTC) updateData.amountTTC = amountTTC.toString();
+      if (amountDisplayTTC) updateData.amountDisplayTTC = amountDisplayTTC.toString();
       if (vatApplicable !== undefined) updateData.vatApplicable = vatApplicable === "true";
       if (amountHT !== undefined) updateData.amountHT = amountHT ? amountHT.toString() : null;
       if (description !== undefined) updateData.description = description || null;
@@ -369,11 +369,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Generate file name with new format: YYMMDD_Supplier_AmountTTC
         const finalInvoiceDate = invoiceDate || existingInvoice.invoiceDate.toISOString().split('T')[0];
-        const finalAmountTTC = amountTTC || existingInvoice.amountTTC;
+        const finalAmountDisplayTTC = amountDisplayTTC || existingInvoice.amountDisplayTTC;
         const fileName = generateFileName(
           finalInvoiceDate,
           supplier.name,
-          finalAmountTTC,
+          finalAmountDisplayTTC,
           file.originalname
         );
 
@@ -517,7 +517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           format(new Date(inv.invoiceDate), "dd/MM/yyyy"),
           inv.supplierName,
           inv.category,
-          inv.amountTTC,
+          inv.amountDisplayTTC,
           inv.vatApplicable ? "Oui" : "Non",
           inv.amountHT || "",
           inv.description || "",
@@ -570,12 +570,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Titre: description ou "Facture [fournisseur]"
         const titre = inv.description || `Facture ${inv.supplierName}`;
         
-        // Montant HT: si TVA=Oui → amountHT, sinon → amountTTC
-        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountTTC) : inv.amountTTC;
+        // Montant HT: si TVA=Oui → amountHT, sinon → amountDisplayTTC
+        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountDisplayTTC) : inv.amountDisplayTTC;
         
         // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
         const montantTaxe18 = inv.vatApplicable && inv.amountHT 
-          ? (parseFloat(inv.amountTTC) - parseFloat(inv.amountHT)).toFixed(2)
+          ? (parseFloat(inv.amountDisplayTTC) - parseFloat(inv.amountHT)).toFixed(2)
           : "0";
         
         // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
@@ -594,7 +594,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "",                             // Adresse - Code postal
           "",                             // Adresse - Ville
           montantHT,                      // Montant HT *
-          inv.amountTTC,                  // Montant TTC *
+          inv.amountDisplayTTC,                  // Montant TTC *
           "0",                            // Montant TVA 20% *
           "0",                            // Montant TVA 10% *
           "0",                            // MontantTVA 5.5% *
@@ -640,12 +640,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Titre: description ou "Facture [fournisseur]"
         const titre = inv.description || `Facture ${inv.supplierName}`;
         
-        // Montant HT: si TVA=Oui → amountHT, sinon → amountTTC
-        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountTTC) : inv.amountTTC;
+        // Montant HT: si TVA=Oui → amountHT, sinon → amountDisplayTTC
+        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountDisplayTTC) : inv.amountDisplayTTC;
         
         // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
         const montantTaxe18 = inv.vatApplicable && inv.amountHT 
-          ? (parseFloat(inv.amountTTC) - parseFloat(inv.amountHT)).toFixed(2)
+          ? (parseFloat(inv.amountDisplayTTC) - parseFloat(inv.amountHT)).toFixed(2)
           : "0";
         
         // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
@@ -664,7 +664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "",                             // Adresse - Code postal
           "",                             // Adresse - Ville
           montantHT,                      // Montant HT *
-          inv.amountTTC,                  // Montant TTC *
+          inv.amountDisplayTTC,                  // Montant TTC *
           "0",                            // Montant TVA 20% *
           "0",                            // Montant TVA 10% *
           "0",                            // MontantTVA 5.5% *
@@ -710,12 +710,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Titre: description ou "Facture [fournisseur]"
         const titre = inv.description || `Facture ${inv.supplierName}`;
         
-        // Montant HT: si TVA=Oui → amountHT, sinon → amountTTC
-        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountTTC) : inv.amountTTC;
+        // Montant HT: si TVA=Oui → amountHT, sinon → amountDisplayTTC
+        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountDisplayTTC) : inv.amountDisplayTTC;
         
         // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
         const montantTaxe18 = inv.vatApplicable && inv.amountHT 
-          ? (parseFloat(inv.amountTTC) - parseFloat(inv.amountHT)).toFixed(2)
+          ? (parseFloat(inv.amountDisplayTTC) - parseFloat(inv.amountHT)).toFixed(2)
           : "0";
         
         // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
@@ -734,7 +734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "",                             // Adresse - Code postal
           "",                             // Adresse - Ville
           montantHT,                      // Montant HT *
-          inv.amountTTC,                  // Montant TTC *
+          inv.amountDisplayTTC,                  // Montant TTC *
           "0",                            // Montant TVA 20% *
           "0",                            // Montant TVA 10% *
           "0",                            // MontantTVA 5.5% *

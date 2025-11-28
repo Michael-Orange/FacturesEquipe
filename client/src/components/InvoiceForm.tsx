@@ -47,7 +47,7 @@ const invoiceFormSchema = z.object({
   invoiceDate: z.string().min(1, "La date est requise"),
   supplierId: z.string().min(1, "Le fournisseur est requis"),
   category: z.string().min(1, "La catégorie est requise"),
-  amountTTC: z.string().min(1, "Le montant TTC est requis"),
+  amountDisplayTTC: z.string().min(1, "Le montant TTC est requis"),
   vatApplicable: z.enum(["true", "false"]),
   amountHT: z.string().optional(),
   description: z.string().min(1, "La description est requise"),
@@ -104,7 +104,7 @@ export function InvoiceForm({
       invoiceDate: new Date().toISOString().split("T")[0],
       supplierId: "",
       category: "Fourniture Matériaux",
-      amountTTC: "",
+      amountDisplayTTC: "",
       vatApplicable: "false",
       amountHT: "",
       description: "",
@@ -116,13 +116,13 @@ export function InvoiceForm({
   const category = form.watch("category");
   const vatApplicable = form.watch("vatApplicable");
   const supplierId = form.watch("supplierId");
-  const amountTTC = form.watch("amountTTC");
+  const amountDisplayTTC = form.watch("amountDisplayTTC");
   const amountHT = form.watch("amountHT");
 
   // Validation en temps réel du Montant HT
   useEffect(() => {
-    if (vatApplicable === "true" && category !== "Restauration, boissons et petits achats alimentaires" && amountTTC && amountHT) {
-      const ttc = parseFloat(amountTTC);
+    if (vatApplicable === "true" && category !== "Restauration, boissons et petits achats alimentaires" && amountDisplayTTC && amountHT) {
+      const ttc = parseFloat(amountDisplayTTC);
       const ht = parseFloat(amountHT);
       
       if (!isNaN(ttc) && !isNaN(ht) && ttc > 0) {
@@ -140,7 +140,7 @@ export function InvoiceForm({
         }
       }
     }
-  }, [amountHT, amountTTC, vatApplicable, category, toast]);
+  }, [amountHT, amountDisplayTTC, vatApplicable, category, toast]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -179,7 +179,7 @@ export function InvoiceForm({
         invoiceDate: new Date().toISOString().split("T")[0],
         supplierId: "",
         category: "Fourniture Matériaux",
-        amountTTC: "",
+        amountDisplayTTC: "",
         vatApplicable: "false",
         amountHT: "",
         description: "",
@@ -301,20 +301,20 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="amountTTC" className="text-base font-medium">
+        <Label htmlFor="amountDisplayTTC" className="text-base font-medium">
           Montant TTC (FCFA) *
         </Label>
         <Input
-          id="amountTTC"
+          id="amountDisplayTTC"
           type="number"
           step="0.01"
           placeholder="0.00"
-          {...form.register("amountTTC")}
+          {...form.register("amountDisplayTTC")}
           className="h-14 text-base"
           data-testid="input-amount-ttc"
         />
-        {form.formState.errors.amountTTC && (
-          <p className="text-sm text-destructive">{form.formState.errors.amountTTC.message}</p>
+        {form.formState.errors.amountDisplayTTC && (
+          <p className="text-sm text-destructive">{form.formState.errors.amountDisplayTTC.message}</p>
         )}
       </div>
 

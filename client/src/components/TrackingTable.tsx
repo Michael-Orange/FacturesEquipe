@@ -30,7 +30,7 @@ interface InvoiceWithDetails {
   invoiceDate: string;
   supplierName: string;
   category: string;
-  amountTTC: string;
+  amountDisplayTTC: string;
   vatApplicable: boolean;
   amountHT?: string | null;
   description?: string | null;
@@ -125,7 +125,7 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
                 <div className="flex justify-between items-center">
                   <div className="space-y-1">
                     <p className="text-lg font-bold text-primary">
-                      {parseFloat(invoice.amountTTC).toLocaleString("fr-FR")} FCFA
+                      {parseFloat(invoice.amountDisplayTTC).toLocaleString("fr-FR")} FCFA
                     </p>
                     {invoice.projectNumber && (
                       <p className="text-xs text-muted-foreground">
@@ -208,7 +208,7 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
                     <Badge variant="secondary">{invoice.category}</Badge>
                   </TableCell>
                   <TableCell className="text-right font-semibold">
-                    {parseFloat(invoice.amountTTC).toLocaleString("fr-FR")} FCFA
+                    {parseFloat(invoice.amountDisplayTTC).toLocaleString("fr-FR")} FCFA
                   </TableCell>
                   <TableCell className="max-w-xs">
                     {invoice.projectNumber && (
