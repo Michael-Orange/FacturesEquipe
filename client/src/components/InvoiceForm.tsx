@@ -63,6 +63,7 @@ const invoiceFormSchema = z.object({
   amountDisplayTTC: z.string().min(1, "Le montant TTC est requis"),
   isStockPurchase: z.boolean(),
   categoryId: z.string().min(1, "La catégorie est requise"),
+  category: z.string().min(1, "La catégorie est requise"),
   vatApplicable: z.boolean(),
   hasBrs: z.boolean(),
   invoiceType: z.enum(["expense", "supplier_invoice"]),
@@ -70,6 +71,8 @@ const invoiceFormSchema = z.object({
   description: z.string().min(1, "La description est requise"),
   paymentType: z.string().min(1, "Le type de règlement est requis"),
   projectId: z.string().optional(),
+  amountHT: z.number().optional().nullable(),
+  amountRealTTC: z.number().optional().nullable(),
 }).refine(
   (data) => {
     if (data.invoiceType === "supplier_invoice" && (!data.invoiceNumber || data.invoiceNumber.trim() === "")) {
@@ -134,6 +137,7 @@ export function InvoiceForm({
       amountDisplayTTC: "",
       isStockPurchase: false,
       categoryId: "",
+      category: "",
       vatApplicable: false,
       hasBrs: false,
       invoiceType: "expense",
@@ -141,6 +145,8 @@ export function InvoiceForm({
       description: "",
       paymentType: defaultPaymentType,
       projectId: "",
+      amountHT: null,
+      amountRealTTC: null,
     },
   });
 
@@ -162,6 +168,9 @@ export function InvoiceForm({
     form.setValue("categoryId", id);
     const category = categories.find((c) => c.id === parseInt(id));
     setSelectedCategory(category || null);
+    if (category) {
+      form.setValue("category", category.appName);
+    }
   };
 
   useEffect(() => {
@@ -173,6 +182,7 @@ export function InvoiceForm({
 
     if (isStockPurchase && stockCategory) {
       form.setValue("categoryId", stockCategory.id.toString());
+      form.setValue("category", stockCategory.appName);
       setSelectedCategory(stockCategory);
       setIsCategoryDisabled(true);
     } else {
@@ -316,7 +326,13 @@ export function InvoiceForm({
 
     setIsSubmitting(true);
     try {
-      await onSubmit({ ...data, file: selectedFile });
+      const submitData = {
+        ...data,
+        amountHT: amountHT,
+        amountRealTTC: amountRealTTC,
+        file: selectedFile,
+      };
+      await onSubmit(submitData);
       setIsSuccess(true);
       form.reset({
         invoiceDate: new Date().toISOString().split("T")[0],
@@ -324,6 +340,7 @@ export function InvoiceForm({
         amountDisplayTTC: "",
         isStockPurchase: false,
         categoryId: "",
+        category: "",
         vatApplicable: false,
         hasBrs: false,
         invoiceType: "expense",
@@ -331,10 +348,14 @@ export function InvoiceForm({
         description: "",
         paymentType: defaultPaymentType,
         projectId: "",
+        amountHT: null,
+        amountRealTTC: null,
       });
       setSelectedFile(null);
       setSelectedSupplier(null);
       setSelectedCategory(null);
+      setAmountHT(null);
+      setAmountRealTTC(null);
 
       setTimeout(() => setIsSuccess(false), 5000);
     } catch (error) {

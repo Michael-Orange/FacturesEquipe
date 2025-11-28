@@ -56,7 +56,7 @@ export default function InvoiceSubmission() {
   });
 
   const submitInvoiceMutation = useMutation({
-    mutationFn: async (data: InvoiceFormData & { file: File }) => {
+    mutationFn: async (data: InvoiceFormData & { file: File; amountHT?: number | null; amountRealTTC?: number | null }) => {
       const formData = new FormData();
       formData.append("userName", userData.name);
       formData.append("token", token!);
@@ -69,11 +69,14 @@ export default function InvoiceSubmission() {
       if (data.projectId) formData.append("projectId", data.projectId);
       formData.append("file", data.file);
       
+      formData.append("category", data.category);
       formData.append("isStockPurchase", String(data.isStockPurchase));
       formData.append("categoryId", data.categoryId);
       formData.append("hasBrs", String(data.hasBrs));
       formData.append("invoiceType", data.invoiceType);
       if (data.invoiceNumber) formData.append("invoiceNumber", data.invoiceNumber);
+      if (data.amountHT != null) formData.append("amountHT", String(data.amountHT));
+      if (data.amountRealTTC != null) formData.append("amountRealTTC", String(data.amountRealTTC));
 
       const response = await fetch("/api/invoices", {
         method: "POST",
