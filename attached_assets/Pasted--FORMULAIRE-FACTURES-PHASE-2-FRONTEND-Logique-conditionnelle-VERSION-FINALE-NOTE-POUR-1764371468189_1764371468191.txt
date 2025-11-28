@@ -1,0 +1,540 @@
+# FORMULAIRE FACTURES - PHASE 2 : FRONTEND (Logique conditionnelle) - VERSION FINALE
+
+## NOTE POUR REPLIT
+Phase 1 Backend terminée avec succès. Cette phase se concentre UNIQUEMENT sur le formulaire frontend avec toute la logique conditionnelle. Le backend est déjà prêt et ne doit PAS être modifié (sauf si bug découvert).
+
+## CONTEXTE
+Créer le nouveau formulaire de soumission de factures avec 14 champs dont 6 conditionnels. Le backend valide déjà tout côté serveur, le frontend doit guider l'utilisateur avec des champs qui s'affichent/se cachent/se forcent automatiquement selon les règles métier.
+
+## OBJECTIFS PHASE 2
+1. Modifier le formulaire de soumission (InvoiceForm.tsx ou composant équivalent)
+2. Implémenter les 14 champs dans l'ordre défini
+3. Gérer 7 useEffect pour la logique conditionnelle
+4. Afficher les calculs en temps réel (Montant HT, Montant TTC réel)
+5. Gérer le forcing automatique des champs (TVA, Catégorie, Type de facture)
+6. Adapter options paiement pour Fatou (uniquement "Wave Business Caisse" et "Espèces")
+7. NE PAS TOUCHER AU BACKEND (déjà fait en Phase 1)
+8. NE PAS TOUCHER AUX EXPORTS CSV (plus tard)
+
+## NOMENCLATURE (RAPPEL)
+- `vat_applicable` (pas has_vat)
+- `amount_display_ttc` (montant saisi par l'utilisateur)
+- `amount_ht` (calculé si TVA = Oui)
+- `amount_real_ttc` (calculé si BRS = Oui)
+
+## EXEMPLE CONCRET LOGIQUE BRS (100 FCFA)
+
+**BRS = OUI :**
+- Utilisateur saisit : 100 FCFA (montant payé après retenue)
+- Montant réel comptable : 100 / 0.95 = 105 FCFA (avant retenue)
+- Affichage : MONTRER les 2 montants car différents
+
+**BRS = NON :**
+- Utilisateur saisit : 100 FCFA
+- Montant réel : 100 FCFA (identique)
+- Affichage : NE PAS MONTRER de champ supplémentaire car identiques
+
+## STRUCTURE DU FORMULAIRE - 14 CHAMPS
+
+### 1. Fournisseur (existant - dropdown)
+**Type :** Dropdown / Select
+**Source :** GET /api/suppliers
+**Affichage :** Nom du fournisseur
+**État local :** 
+```javascript
+const [supplierId, setSupplierId] = useState('');
+const [selectedSupplier, setSelectedSupplier] = useState(null);
+Logique :
+const handleSupplierChange = (id) => {
+  setSupplierId(id);
+  const supplier = suppliers.find(s => s.id === parseInt(id));
+  setSelectedSupplier(supplier);
+};
+2. Montant TTC affiché (FCFA)
+Type : Number input
+Label : "Montant TTC affiché (FCFA)"
+État local :
+const [amountDisplayTTC, setAmountDisplayTTC] = useState('');
+Props input :
+<input
+  type="number"
+  value={amountDisplayTTC}
+  onChange={(e) => setAmountDisplayTTC(e.target.value)}
+  min="0"
+  step="1"
+  required
+  placeholder="Ex: 50000"
+/>
+3. Achat pour le stock ? (NOUVEAU - toggle)
+Type : Toggle / Checkbox / Radio Oui-Non
+Label : "Achat pour le stock ?"
+Défaut : Non
+État local :
+const [isStockPurchase, setIsStockPurchase] = useState(false);
+Affichage conditionnel :
+{isStockPurchase && (
+  <div className="info-message">
+    ℹ️ Catégorie automatique : Stock - achats de matériaux
+  </div>
+)}
+4. Catégorie (modifié - dropdown BDD)
+Type : Dropdown / Select
+Source : GET /api/categories (nouvelle route créée en Phase 1)
+Affichage : app_name ou appName selon format API
+État local :
+const [categoryId, setCategoryId] = useState('');
+const [categories, setCategories] = useState([]);
+const [selectedCategory, setSelectedCategory] = useState(null);
+Chargement des catégories :
+useEffect(() => {
+  fetch('/api/categories')
+    .then(res => res.json())
+    .then(data => {
+      console.log('Categories loaded:', data);
+      setCategories(data);
+    })
+    .catch(err => console.error('Erreur chargement catégories:', err));
+}, []);
+Logique :
+const handleCategoryChange = (id) => {
+  setCategoryId(id);
+  const category = categories.find(c => c.id === parseInt(id));
+  setSelectedCategory(category);
+};
+Dropdown désactivé si stock :
+<select
+  value={categoryId}
+  onChange={(e) => handleCategoryChange(e.target.value)}
+  disabled={isCategoryDisabled}
+  required
+>
+  <option value="">Sélectionner une catégorie</option>
+  {categories.map(cat => (
+    <option key={cat.id} value={cat.id}>
+      {cat.app_name || cat.appName}
+    </option>
+  ))}
+</select>
+5. TVA applicable (existant - toggle)
+Type : Toggle / Checkbox
+Label : "TVA applicable (18%)"
+Défaut : Non
+État local :
+const [vatApplicable, setVatApplicable] = useState(false);
+Toggle désactivé si forcé :
+<label>
+  <input
+    type="checkbox"
+    checked={vatApplicable}
+    onChange={(e) => setVatApplicable(e.target.checked)}
+    disabled={isTVADisabled}
+  />
+  TVA applicable (18%)
+</label>
+
+{isTVADisabled && (
+  <div className="info-message">
+    ℹ️ TVA automatiquement NON pour cette catégorie
+  </div>
+)}
+5b. Montant HT (NOUVEAU - conditionnel calculé)
+Type : Affichage readonly
+Label : "Montant HT"
+État local :
+const [amountHT, setAmountHT] = useState(null);
+const [showAmountHT, setShowAmountHT] = useState(false);
+Affichage conditionnel :
+{showAmountHT && amountHT && (
+  <div className="calculated-amounts">
+    <div className="amount-line">
+      💰 Montant HT : {formatAmount(amountHT)} FCFA
+    </div>
+    <div className="amount-line">
+      💰 Montant TTC : {formatAmount(amountDisplayTTC)} FCFA
+    </div>
+  </div>
+)}
+Fonction formatAmount :
+const formatAmount = (amount) => {
+  if (!amount) return '0';
+  return Math.round(amount).toLocaleString('fr-FR');
+};
+6. BRS mentionné (NOUVEAU - conditionnel)
+Type : Toggle / Checkbox
+Label : "Montant total avec BRS mentionné"
+Défaut : Non
+État local :
+const [hasBRS, setHasBRS] = useState(false);
+const [showBRSField, setShowBRSField] = useState(false);
+Affichage conditionnel :
+{showBRSField && (
+  <label>
+    <input
+      type="checkbox"
+      checked={hasBRS}
+      onChange={(e) => setHasBRS(e.target.checked)}
+    />
+    Montant total avec BRS mentionné
+  </label>
+)}
+7. Montant TTC réel (NOUVEAU - conditionnel calculé)
+Type : Affichage readonly
+Label : "Montant TTC réel (comptable)"
+État local :
+const [amountRealTTC, setAmountRealTTC] = useState(null);
+const [showRealAmountField, setShowRealAmountField] = useState(false);
+RÈGLE BRS :
+Si BRS = Oui : Afficher montant réel = 100 / 0.95 = 105 FCFA (différent)
+Si BRS = Non : Ne pas afficher (montants identiques)
+Affichage conditionnel :
+{showRealAmountField && amountRealTTC && (
+  <div className="calculated-amounts">
+    <div className="amount-line">
+      💰 Montant TTC réel (comptable) : {formatAmount(amountRealTTC)} FCFA
+    </div>
+    <div className="info-text">
+      Calculé automatiquement avec retenue à la source (BRS 5%)
+    </div>
+  </div>
+)}
+8. Type de Facture (NOUVEAU - radio buttons)
+Type : Radio buttons (2 choix)
+Options : "Dépense" / "Facture Fournisseur"
+État local :
+const [invoiceType, setInvoiceType] = useState('expense');
+const [isInvoiceTypeDisabled, setIsInvoiceTypeDisabled] = useState(false);
+Texte descriptif :
+<div className="invoice-type-description">
+  <p><strong>Facture Fournisseur :</strong> Toute facture <strong>supérieure à 500 000 FCFA</strong> OU <strong>à régler à une date ultérieure</strong> OU provenant d'un <strong>fournisseur régulier avec facture formelle</strong> (ex. Europe Bache, CCS, Gaffari, etc.) OU provenant d'une prestation de service avec BRS applicable (uniquement prestation de service sans facture TVA)</p>
+  
+  <p><strong>Dépense :</strong> Toute dépense <strong>inférieure à 500 000 FCFA</strong>, <strong>payée immédiatement</strong> et ne provenant <strong>pas d'un fournisseur régulier</strong> avec facture formelle ou une prestation de service où BRS est applicable</p>
+</div>
+Radio buttons :
+<div className="radio-group">
+  <label>
+    <input
+      type="radio"
+      value="expense"
+      checked={invoiceType === 'expense'}
+      onChange={(e) => setInvoiceType(e.target.value)}
+      disabled={isInvoiceTypeDisabled}
+    />
+    Dépense
+  </label>
+  
+  <label>
+    <input
+      type="radio"
+      value="supplier_invoice"
+      checked={invoiceType === 'supplier_invoice'}
+      onChange={(e) => setInvoiceType(e.target.value)}
+      disabled={isInvoiceTypeDisabled}
+    />
+    Facture Fournisseur
+  </label>
+</div>
+
+{isInvoiceTypeDisabled && (
+  <div className="warning-message">
+    ⚠️ Type de facture déterminé automatiquement selon les critères définis
+  </div>
+)}
+9. Numéro de facture (NOUVEAU - conditionnel)
+Type : Text input
+Label : "Numéro de facture"
+État local :
+const [invoiceNumber, setInvoiceNumber] = useState('');
+const [showInvoiceNumberField, setShowInvoiceNumberField] = useState(false);
+Affichage conditionnel :
+{showInvoiceNumberField && (
+  <input
+    type="text"
+    value={invoiceNumber}
+    onChange={(e) => setInvoiceNumber(e.target.value)}
+    placeholder="Ex: FAC-2024-001"
+    required
+  />
+)}
+10-14. Champs existants
+Description (textarea)
+Date (date picker)
+Projet (dropdown)
+Type de règlement (dropdown - voir modification Fatou ci-dessous)
+Upload photo (file upload)
+Garder ces champs tels quels et les positionner après le champ Numéro de facture.
+MODIFICATION : TYPE DE RÈGLEMENT POUR FATOU
+Condition : Si userId === [ID de Fatou]
+Options pour Fatou (UNIQUEMENT 2) :
+{userId === FATOU_USER_ID ? (
+  <>
+    <option value="Wave Business Caisse">Wave Business Caisse</option>
+    <option value="Espèces">Espèces</option>
+  </>
+) : (
+  <>
+    <option value="Wave Business">Wave Business</option>
+    <option value="Espèces">Espèces</option>
+    <option value="Carte bancaire">Carte bancaire</option>
+    {/* Autres options existantes pour Michael/Marine */}
+  </>
+)}
+LOGIQUE CONDITIONNELLE - 7 USEEFFECT
+useEffect 1 : Forcing catégorie si stock
+useEffect(() => {
+  if (!categories.length) return;
+  
+  const stockCategory = categories.find(
+    c => (c.account_code || c.accountCode) === '3210000000'
+  );
+  
+  if (isStockPurchase && stockCategory) {
+    setCategoryId(stockCategory.id.toString());
+    setSelectedCategory(stockCategory);
+    setIsCategoryDisabled(true);
+  } else {
+    setIsCategoryDisabled(false);
+  }
+}, [isStockPurchase, categories]);
+useEffect 2 : Forcing TVA si catégorie Restaurant/Essence
+useEffect(() => {
+  if (!selectedCategory) return;
+  
+  const accountName = selectedCategory.account_name || selectedCategory.accountName;
+  
+  if (
+    accountName === 'Réceptions' ||
+    accountName === 'Fournitures non stockables - Energies'
+  ) {
+    setVatApplicable(false);
+    setIsTVADisabled(true);
+  } else {
+    setIsTVADisabled(false);
+  }
+}, [selectedCategory]);
+useEffect 3 : Calcul Montant HT (TVA 18%)
+useEffect(() => {
+  if (vatApplicable && amountDisplayTTC > 0) {
+    const ht = parseFloat(amountDisplayTTC) / 1.18;
+    setAmountHT(ht);
+    setShowAmountHT(true);
+  } else {
+    setAmountHT(null);
+    setShowAmountHT(false);
+  }
+}, [vatApplicable, amountDisplayTTC]);
+useEffect 4 : Affichage champ BRS
+useEffect(() => {
+  if (!selectedCategory) return;
+  
+  const accountName = selectedCategory.account_name || selectedCategory.accountName;
+  const isPrestationServices = accountName === "Achats d'études et prestations de services";
+  
+  if (!vatApplicable && isPrestationServices) {
+    setShowBRSField(true);
+  } else {
+    setShowBRSField(false);
+    setHasBRS(false);
+    setAmountRealTTC(null);
+    setShowRealAmountField(false);
+  }
+}, [vatApplicable, selectedCategory]);
+useEffect 5 : Calcul Montant TTC réel (BRS) - LOGIQUE CORRIGÉE
+useEffect(() => {
+  if (!showBRSField || !amountDisplayTTC || amountDisplayTTC <= 0) {
+    setAmountRealTTC(null);
+    setShowRealAmountField(false);
+    return;
+  }
+  
+  if (hasBRS) {
+    // BRS = Oui : utilisateur a saisi montant APRÈS retenue
+    // Montant réel comptable (avant retenue) = montant saisi / 0.95
+    // Exemple : 100 / 0.95 = 105 FCFA
+    const realTTC = parseFloat(amountDisplayTTC) / 0.95;
+    setAmountRealTTC(realTTC);
+    setShowRealAmountField(true); // AFFICHER car montants différents
+  } else {
+    // BRS = Non : pas de retenue
+    // Montant réel = montant affiché
+    setAmountRealTTC(parseFloat(amountDisplayTTC));
+    setShowRealAmountField(false); // NE PAS AFFICHER car identiques
+  }
+}, [hasBRS, showBRSField, amountDisplayTTC]);
+useEffect 6 : Forcing Type de facture
+useEffect(() => {
+  const amount = parseFloat(amountDisplayTTC) || 0;
+  const accountName = selectedCategory?.account_name || selectedCategory?.accountName;
+  
+  // CAS 1 : FORCER Facture Fournisseur
+  if (
+    amount >= 500000 ||
+    selectedSupplier?.is_regular_supplier === true ||
+    hasBRS === true
+  ) {
+    setInvoiceType('supplier_invoice');
+    setIsInvoiceTypeDisabled(true);
+    return;
+  }
+  
+  // CAS 2 : FORCER Dépense
+  if (selectedCategory && (
+    accountName === 'Réceptions' ||
+    accountName === 'Fournitures non stockables - Energies'
+  )) {
+    setInvoiceType('expense');
+    setIsInvoiceTypeDisabled(true);
+    return;
+  }
+  
+  // CAS 3 : Choix libre
+  setIsInvoiceTypeDisabled(false);
+}, [amountDisplayTTC, selectedSupplier, hasBRS, selectedCategory]);
+useEffect 7 : Affichage conditionnel Numéro de facture
+useEffect(() => {
+  if (invoiceType === 'supplier_invoice') {
+    setShowInvoiceNumberField(true);
+  } else {
+    setShowInvoiceNumberField(false);
+    setInvoiceNumber('');
+  }
+}, [invoiceType]);
+SOUMISSION DU FORMULAIRE
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  // Validation frontend
+  if (!supplierId || !amountDisplayTTC || !categoryId || !invoiceType) {
+    alert('Veuillez remplir tous les champs obligatoires');
+    return;
+  }
+  
+  if (invoiceType === 'supplier_invoice' && !invoiceNumber.trim()) {
+    alert('Numéro de facture obligatoire pour les Factures Fournisseur');
+    return;
+  }
+  
+  // Préparer les données
+  const invoiceData = {
+    supplier_id: parseInt(supplierId),
+    amount_display_ttc: parseFloat(amountDisplayTTC),
+    is_stock_purchase: isStockPurchase,
+    category_id: parseInt(categoryId),
+    vat_applicable: vatApplicable,
+    has_brs: hasBRS,
+    invoice_type: invoiceType,
+    invoice_number: invoiceType === 'supplier_invoice' ? invoiceNumber : null,
+    description,
+    date,
+    project_id: parseInt(projectId),
+    payment_method: paymentMethod,
+    file_url: uploadedFileUrl
+  };
+  
+  try {
+    const response = await fetch('/api/invoices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(invoiceData)
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      alert(`Erreur : ${error.error || 'Erreur lors de la soumission'}`);
+      return;
+    }
+    
+    const result = await response.json();
+    alert('Facture soumise avec succès !');
+    // Rediriger ou réinitialiser
+    
+  } catch (error) {
+    console.error('Erreur soumission:', error);
+    alert('Erreur lors de la soumission de la facture');
+  }
+};
+ÉTATS UI CONDITIONNELS
+// États de base
+const [supplierId, setSupplierId] = useState('');
+const [selectedSupplier, setSelectedSupplier] = useState(null);
+const [amountDisplayTTC, setAmountDisplayTTC] = useState('');
+const [isStockPurchase, setIsStockPurchase] = useState(false);
+const [categoryId, setCategoryId] = useState('');
+const [categories, setCategories] = useState([]);
+const [selectedCategory, setSelectedCategory] = useState(null);
+const [vatApplicable, setVatApplicable] = useState(false);
+const [hasBRS, setHasBRS] = useState(false);
+const [invoiceType, setInvoiceType] = useState('expense');
+const [invoiceNumber, setInvoiceNumber] = useState('');
+
+// États calculés
+const [amountHT, setAmountHT] = useState(null);
+const [amountRealTTC, setAmountRealTTC] = useState(null);
+
+// États UI conditionnels
+const [showAmountHT, setShowAmountHT] = useState(false);
+const [showBRSField, setShowBRSField] = useState(false);
+const [showRealAmountField, setShowRealAmountField] = useState(false);
+const [showInvoiceNumberField, setShowInvoiceNumberField] = useState(false);
+const [isCategoryDisabled, setIsCategoryDisabled] = useState(false);
+const [isTVADisabled, setIsTVADisabled] = useState(false);
+const [isInvoiceTypeDisabled, setIsInvoiceTypeDisabled] = useState(false);
+STYLING / UX
+.info-message {
+  background-color: #e3f2fd;
+  color: #1976d2;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.warning-message {
+  background-color: #fff3e0;
+  color: #f57c00;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.calculated-amounts {
+  background-color: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.amount-line {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+input:disabled, select:disabled {
+  background-color: #e0e0e0;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+TESTS APRÈS IMPLÉMENTATION
+Test BRS avec 100 FCFA :
+Catégorie "Prestation de services", TVA = Non
+Montant 100 FCFA
+BRS = Oui → vérifier affichage "Montant TTC réel : 105 FCFA"
+BRS = Non → vérifier champ montant réel masqué
+Test Fatou :
+Se connecter en tant que Fatou
+Vérifier uniquement 2 options : "Wave Business Caisse" et "Espèces"
+Test forcing montant > 500k :
+Montant 600 000 FCFA
+Vérifier Type forcé "Facture Fournisseur"
+Vérifier champ Numéro facture affiché
+Test TVA :
+Montant 500 000 FCFA, TVA = Oui
+Vérifier Montant HT = 423 729 FCFA
+RÉSULTAT ATTENDU
+✅ 14 champs dans le bon ordre
+✅ Logique BRS corrigée (afficher si BRS = Oui, masquer si BRS = Non)
+✅ Options Fatou corrigées (2 options uniquement)
+✅ Calculs temps réel fonctionnels
+✅ Forcing automatique opérationnel
+✅ Validation frontend avant soumission
+✅ Mobile-friendly
