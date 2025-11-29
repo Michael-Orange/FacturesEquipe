@@ -115,8 +115,7 @@ export function InvoiceForm({
   const [amountRealTTC, setAmountRealTTC] = useState<number | null>(null);
 
   const [showAmountHT, setShowAmountHT] = useState(false);
-  const [showBRSField, setShowBRSField] = useState(false);
-  const [showRealAmountField, setShowRealAmountField] = useState(false);
+  const [isBRSApplicable, setIsBRSApplicable] = useState(false);
   const [showInvoiceNumberField, setShowInvoiceNumberField] = useState(false);
   const [isCategoryDisabled, setIsCategoryDisabled] = useState(false);
   const [isTVADisabled, setIsTVADisabled] = useState(false);
@@ -222,43 +221,33 @@ export function InvoiceForm({
   }, [vatApplicable, amountDisplayTTC]);
 
   useEffect(() => {
-    if (!selectedCategory) {
-      setShowBRSField(false);
+    if (!selectedCategory || vatApplicable) {
+      setIsBRSApplicable(false);
       form.setValue("hasBrs", false);
+      setAmountRealTTC(null);
       return;
     }
 
     const accountName = selectedCategory.accountName;
-    const isPrestationServices = accountName === "Achats d'études et prestations de services";
+    
+    const brsCategoryNames = [
+      "Achats d'études et prestations de services",
+      "Transports sur ventes",
+      "Autres entretiens et réparations"
+    ];
+    
+    const isBRS = !vatApplicable && brsCategoryNames.includes(accountName);
+    setIsBRSApplicable(isBRS);
+    form.setValue("hasBrs", isBRS);
 
-    if (!vatApplicable && isPrestationServices) {
-      setShowBRSField(true);
-    } else {
-      setShowBRSField(false);
-      form.setValue("hasBrs", false);
-      setAmountRealTTC(null);
-      setShowRealAmountField(false);
-    }
-  }, [vatApplicable, selectedCategory, form]);
-
-  useEffect(() => {
     const amount = parseFloat(amountDisplayTTC) || 0;
-
-    if (!showBRSField || amount <= 0) {
-      setAmountRealTTC(null);
-      setShowRealAmountField(false);
-      return;
-    }
-
-    if (hasBrs) {
+    if (isBRS && amount > 0) {
       const realTTC = amount / 0.95;
       setAmountRealTTC(realTTC);
-      setShowRealAmountField(true);
     } else {
-      setAmountRealTTC(amount);
-      setShowRealAmountField(false);
+      setAmountRealTTC(amount > 0 ? amount : null);
     }
-  }, [hasBrs, showBRSField, amountDisplayTTC]);
+  }, [vatApplicable, selectedCategory, amountDisplayTTC, form]);
 
   useEffect(() => {
     const amount = parseFloat(amountDisplayTTC) || 0;
@@ -267,7 +256,7 @@ export function InvoiceForm({
     if (
       amount >= 500000 ||
       selectedSupplier?.isRegularSupplier === true ||
-      hasBrs === true
+      isBRSApplicable === true
     ) {
       form.setValue("invoiceType", "supplier_invoice");
       setIsInvoiceTypeDisabled(true);
@@ -285,7 +274,7 @@ export function InvoiceForm({
     }
 
     setIsInvoiceTypeDisabled(false);
-  }, [amountDisplayTTC, selectedSupplier, hasBrs, selectedCategory, form]);
+  }, [amountDisplayTTC, selectedSupplier, isBRSApplicable, selectedCategory, form]);
 
   useEffect(() => {
     if (invoiceType === "supplier_invoice") {
@@ -435,7 +424,7 @@ export function InvoiceForm({
 
       <div className="space-y-2">
         <Label htmlFor="amountDisplayTTC" className="text-base font-medium">
-          Montant TTC affiché (FCFA) *
+          Montant TTC à régler (FCFA) *
         </Label>
         <Input
           id="amountDisplayTTC"
@@ -453,17 +442,21 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="isStockPurchase" className="text-base font-medium">
-            Achat pour le stock ?
-          </Label>
-          <Switch
-            id="isStockPurchase"
-            checked={isStockPurchase}
-            onCheckedChange={(checked) => form.setValue("isStockPurchase", checked)}
-            data-testid="switch-stock-purchase"
-          />
-        </div>
+        <Label className="text-base font-medium">Achat pour le stock ?</Label>
+        <RadioGroup
+          value={isStockPurchase ? "yes" : "no"}
+          onValueChange={(value) => form.setValue("isStockPurchase", value === "yes")}
+          className="flex gap-6"
+        >
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="no" id="stock-no" data-testid="radio-stock-no" />
+            <Label htmlFor="stock-no" className="cursor-pointer font-normal">Non</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="yes" id="stock-yes" data-testid="radio-stock-yes" />
+            <Label htmlFor="stock-yes" className="cursor-pointer font-normal">Oui</Label>
+          </div>
+        </RadioGroup>
         {isStockPurchase && (
           <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
             <Info className="h-4 w-4 flex-shrink-0" />
@@ -485,7 +478,15 @@ export function InvoiceForm({
             <SelectValue placeholder="Sélectionner une catégorie..." />
           </SelectTrigger>
           <SelectContent>
-            {categories.map((cat) => (
+            {[...categories].sort((a, b) => {
+              if (a.accountCode === '6021000000') return -1;
+              if (b.accountCode === '6021000000') return 1;
+              const aIsPrestation = a.accountName?.includes("prestations de services");
+              const bIsPrestation = b.accountName?.includes("prestations de services");
+              if (aIsPrestation) return -1;
+              if (bIsPrestation) return 1;
+              return a.appName.localeCompare(b.appName);
+            }).map((cat) => (
               <SelectItem key={cat.id} value={cat.id.toString()} data-testid={`option-category-${cat.id}`}>
                 {cat.appName}
               </SelectItem>
@@ -498,18 +499,22 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="vatApplicable" className="text-base font-medium">
-            TVA applicable (18%)
-          </Label>
-          <Switch
-            id="vatApplicable"
-            checked={vatApplicable}
-            onCheckedChange={(checked) => form.setValue("vatApplicable", checked)}
-            disabled={isTVADisabled}
-            data-testid="switch-vat-applicable"
-          />
-        </div>
+        <Label className="text-base font-medium">Facture avec TVA (18%) ?</Label>
+        <RadioGroup
+          value={vatApplicable ? "yes" : "no"}
+          onValueChange={(value) => form.setValue("vatApplicable", value === "yes")}
+          className="flex gap-6"
+          disabled={isTVADisabled}
+        >
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="no" id="vat-no" data-testid="radio-vat-no" disabled={isTVADisabled} />
+            <Label htmlFor="vat-no" className={`cursor-pointer font-normal ${isTVADisabled ? "opacity-50" : ""}`}>Non</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="yes" id="vat-yes" data-testid="radio-vat-yes" disabled={isTVADisabled} />
+            <Label htmlFor="vat-yes" className={`cursor-pointer font-normal ${isTVADisabled ? "opacity-50" : ""}`}>Oui</Label>
+          </div>
+        </RadioGroup>
         {isTVADisabled && (
           <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
             <Info className="h-4 w-4 flex-shrink-0" />
@@ -533,49 +538,28 @@ export function InvoiceForm({
         </Card>
       )}
 
-      {showBRSField && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="hasBrs" className="text-base font-medium">
-              Montant total avec BRS mentionné
-            </Label>
-            <Switch
-              id="hasBrs"
-              checked={hasBrs}
-              onCheckedChange={(checked) => form.setValue("hasBrs", checked)}
-              data-testid="switch-has-brs"
-            />
-          </div>
-          <p className="text-sm text-muted-foreground">
-            La retenue à la source (BRS) de 5% s'applique aux prestations de services sans TVA
+      {isBRSApplicable && parseFloat(amountDisplayTTC) > 0 && (
+        <div 
+          className="bg-orange-50 dark:bg-orange-950/50 border-l-4 border-orange-500 p-3 rounded-r-md"
+          data-testid="brs-info-box"
+        >
+          <strong className="block mb-1 text-orange-700 dark:text-orange-400">
+            ⚠️ Facture soumise à la retenue à la source (BRS) de 5%
+          </strong>
+          <p className="text-sm text-gray-700 dark:text-gray-300">
+            Retenue BRS : {formatAmount(0.05 * (parseFloat(amountDisplayTTC) / 0.95))} FCFA sur {formatAmount(parseFloat(amountDisplayTTC) / 0.95)} FCFA
           </p>
         </div>
       )}
 
-      {showRealAmountField && amountRealTTC !== null && (
-        <Card className="p-4 bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800">
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-amber-800 dark:text-amber-200 font-medium">Montant TTC réel (comptable) :</span>
-              <span className="font-bold text-amber-900 dark:text-amber-100">{formatAmount(amountRealTTC)} FCFA</span>
-            </div>
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              Calculé automatiquement avec retenue à la source (BRS 5%)
-            </p>
-          </div>
-        </Card>
-      )}
-
       <div className="space-y-3">
         <Label className="text-base font-medium">Type de facture *</Label>
-        <Card className="p-3 bg-muted/30 text-sm">
+        <Card className="p-3 bg-muted/30 text-sm" data-testid="invoice-type-description">
           <p className="mb-2">
-            <strong>Facture Fournisseur :</strong> Facture <strong>&gt;500k FCFA</strong>, à régler ultérieurement, 
-            fournisseur régulier (CCS, Europe Bâche...) ou prestation avec BRS
+            <strong>Facture Fournisseur :</strong> toute Facture <strong>&gt;500k FCFA</strong> OU toute facture à régler ultérieurement OU toute facture fournisseur régulier important OU toute facture prestation avec BRS
           </p>
           <p>
-            <strong>Dépense :</strong> Dépense <strong>&lt;500k FCFA</strong>, payée immédiatement, 
-            pas de fournisseur régulier ni BRS
+            <strong>Dépense :</strong> Dépense <strong>&lt;500k FCFA</strong> payée immédiatement avec un fournisseur non régulier et pas soumis à la BRS
           </p>
         </Card>
         <RadioGroup

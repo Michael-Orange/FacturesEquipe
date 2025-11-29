@@ -1,0 +1,274 @@
+# CORRECTIONS FORMULAIRE FACTURES - POST PHASE 2
+
+## CONTEXTE
+Phase 2 en cours de build. Ces corrections doivent être appliquées une fois la Phase 2 terminée, avant les tests.
+
+## CORRECTION 1 : RENOMMAGE CHAMP MONTANT
+
+**Ancien nom :** "Montant TTC affiché (FCFA)"
+**Nouveau nom :** "Montant TTC à régler (FCFA)"
+
+Changer partout dans le formulaire (label, placeholder, messages).
+
+## CORRECTION 2 : MODIFICATIONS BDD CATEGORIES
+
+### 2a. Modifier catégorie existante "Frais de maintenance"
+
+Chercher la catégorie avec account_name "Autres entretiens et réparations" et la mettre à jour :
+
+```sql
+UPDATE categories SET
+  zoho_account_id = '7743334000000000457',
+  account_name = 'Autres entretiens et réparations',
+  app_name = 'Frais de maintenance (service)',
+  account_code = '6248000000',
+  description = 'Maintenance et réparations de vos équipements',
+  account_type = 'Expense'
+WHERE account_code = '6248000000';
+2b. Modifier catégorie "Achats de matières premières"
+Chercher la catégorie avec account_code "6021000000" et la mettre à jour :
+UPDATE categories SET
+  zoho_account_id = '7743334000000034003',
+  account_name = 'Achats de matières premières et fournitures liées dans la Région',
+  app_name = 'Achats de matières premières et fournitures',
+  account_code = '6021000000',
+  description = '',
+  account_type = 'Cost Of Goods Sold'
+WHERE account_code = '6021000000';
+CORRECTION 3 : ORDRE AFFICHAGE CATÉGORIES
+Dans le dropdown catégories, afficher dans cet ordre de priorité :
+En premier : "Achats de matières premières et fournitures" (account_code '6021000000')
+En deuxième : "Prestation de services" (account_name contient "prestations de services")
+Ensuite : Toutes les autres par ordre alphabétique
+Code exemple :
+const sortedCategories = [...categories].sort((a, b) => {
+  // Priorité 1 : Achats de matières premières
+  if ((a.account_code || a.accountCode) === '6021000000') return -1;
+  if ((b.account_code || b.accountCode) === '6021000000') return 1;
+  
+  // Priorité 2 : Prestation de services
+  const aIsPrestation = (a.account_name || a.accountName)?.includes("prestations de services");
+  const bIsPrestation = (b.account_name || b.accountName)?.includes("prestations de services");
+  if (aIsPrestation) return -1;
+  if (bIsPrestation) return 1;
+  
+  // Reste : ordre alphabétique
+  const aName = a.app_name || a.appName;
+  const bName = b.app_name || b.appName;
+  return aName.localeCompare(bName);
+});
+CORRECTION 4 : NOUVEAU MÉCANISME BRS (CHANGEMENT MAJEUR)
+Ancien mécanisme (à supprimer)
+❌ Toggle "Montant total avec BRS mentionné" (champ 6)
+❌ Champ "Montant TTC réel" affiché conditionnellement (champ 7)
+❌ useEffect 4 et 5 pour gérer BRS
+Nouveau mécanisme (à implémenter)
+Règle automatique :
+Le système calcule automatiquement si la facture est soumise à BRS selon ces critères :
+BRS = OUI si TVA = Non ET catégorie est l'une des suivantes :
+"Prestation de services" (account_name = "Achats d'études et prestations de services")
+"Transports (ex. camions)" (account_name = "Transports sur ventes")
+"Frais de maintenance (service)" (account_name = "Autres entretiens et réparations")
+Pas de toggle utilisateur : L'utilisateur ne choisit plus, c'est automatique.
+Affichage si BRS = Oui :
+Afficher un message informatif APRÈS le champ "TVA applicable" :
+{isBRSApplicable && (
+  <div className="brs-info-box">
+    <strong>⚠️ Facture soumise à la retenue à la source (BRS) de 5%</strong>
+    <p>
+      Retenue BRS : {formatAmount(brsAmount)} FCFA sur {formatAmount(realAmount)} FCFA
+    </p>
+  </div>
+)}
+Calculs :
+// Si BRS applicable
+const realAmount = parseFloat(amountDisplayTTC) / 0.95; // Montant avant retenue
+const brsAmount = 0.05 * realAmount; // 5% du montant réel
+
+// Exemple : Si utilisateur saisit 100 FCFA
+// realAmount = 100 / 0.95 = 105.26 FCFA
+// brsAmount = 0.05 * 105.26 = 5.26 FCFA
+// Message : "Retenue BRS : 5 FCFA sur 105 FCFA"
+Modifications du code
+Supprimer dans les états :
+// ❌ SUPPRIMER
+const [hasBRS, setHasBRS] = useState(false);
+const [showBRSField, setShowBRSField] = useState(false);
+const [amountRealTTC, setAmountRealTTC] = useState(null);
+const [showRealAmountField, setShowRealAmountField] = useState(false);
+Ajouter dans les états :
+// ✅ AJOUTER
+const [isBRSApplicable, setIsBRSApplicable] = useState(false);
+useEffect pour détecter BRS automatiquement (remplace useEffect 4 et 5) :
+useEffect(() => {
+  if (!selectedCategory || vatApplicable) {
+    setIsBRSApplicable(false);
+    return;
+  }
+  
+  const accountName = selectedCategory.account_name || selectedCategory.accountName;
+  
+  // Liste des catégories soumises à BRS
+  const brsCategoryNames = [
+    "Achats d'études et prestations de services",
+    "Transports sur ventes",
+    "Autres entretiens et réparations"
+  ];
+  
+  const isBRS = !vatApplicable && brsCategoryNames.includes(accountName);
+  setIsBRSApplicable(isBRS);
+  
+}, [vatApplicable, selectedCategory]);
+Affichage message BRS :
+{isBRSApplicable && amountDisplayTTC > 0 && (
+  <div className="brs-info-box">
+    <strong>⚠️ Facture soumise à la retenue à la source (BRS) de 5%</strong>
+    <p>
+      Retenue BRS : {formatAmount(0.05 * (parseFloat(amountDisplayTTC) / 0.95))} FCFA 
+      sur {formatAmount(parseFloat(amountDisplayTTC) / 0.95)} FCFA
+    </p>
+  </div>
+)}
+Styling :
+.brs-info-box {
+  background-color: #fff3e0;
+  border-left: 4px solid #f57c00;
+  padding: 12px;
+  margin-top: 8px;
+  border-radius: 4px;
+}
+
+.brs-info-box strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #e65100;
+}
+
+.brs-info-box p {
+  margin: 0;
+  font-size: 14px;
+  color: #424242;
+}
+Modification useEffect 6 (forcing Type de facture) :
+Remplacer hasBRS par isBRSApplicable :
+useEffect(() => {
+  const amount = parseFloat(amountDisplayTTC) || 0;
+  const accountName = selectedCategory?.account_name || selectedCategory?.accountName;
+  
+  // CAS 1 : FORCER Facture Fournisseur
+  if (
+    amount >= 500000 ||
+    selectedSupplier?.is_regular_supplier === true ||
+    isBRSApplicable === true  // ✅ CHANGÉ de hasBRS à isBRSApplicable
+  ) {
+    setInvoiceType('supplier_invoice');
+    setIsInvoiceTypeDisabled(true);
+    return;
+  }
+  
+  // CAS 2 : FORCER Dépense
+  if (selectedCategory && (
+    accountName === 'Réceptions' ||
+    accountName === 'Fournitures non stockables - Energies'
+  )) {
+    setInvoiceType('expense');
+    setIsInvoiceTypeDisabled(true);
+    return;
+  }
+  
+  // CAS 3 : Choix libre
+  setIsInvoiceTypeDisabled(false);
+}, [amountDisplayTTC, selectedSupplier, isBRSApplicable, selectedCategory]);
+Modification soumission formulaire :
+Calculer has_brs automatiquement :
+const invoiceData = {
+  supplier_id: parseInt(supplierId),
+  amount_display_ttc: parseFloat(amountDisplayTTC),
+  is_stock_purchase: isStockPurchase,
+  category_id: parseInt(categoryId),
+  vat_applicable: vatApplicable,
+  has_brs: isBRSApplicable, // ✅ Calculé automatiquement
+  invoice_type: invoiceType,
+  invoice_number: invoiceType === 'supplier_invoice' ? invoiceNumber : null,
+  description,
+  date,
+  project_id: parseInt(projectId),
+  payment_method: paymentMethod,
+  file_url: uploadedFileUrl
+};
+CORRECTION 5 : TEXTE DESCRIPTIF TYPE DE FACTURE
+Ancien texte (à supprimer) :
+Facture Fournisseur : Toute facture supérieure à 500 000 FCFA OU à régler à une date ultérieure OU provenant d'un fournisseur régulier avec facture formelle (ex. Europe Bache, CCS, Gaffari, etc.) OU provenant d'une prestation de service avec BRS applicable (uniquement prestation de service sans facture TVA)
+
+Dépense : Toute dépense inférieure à 500 000 FCFA, payée immédiatement et ne provenant pas d'un fournisseur régulier avec facture formelle ou une prestation de service où BRS est applicable
+Nouveau texte (à utiliser) :
+<div className="invoice-type-description">
+  <p><strong>Facture Fournisseur :</strong> toute Facture <strong>&gt;500k FCFA</strong> OU toute facture à régler ultérieurement OU toute facture fournisseur régulier important OU toute facture prestation avec BRS</p>
+  
+  <p><strong>Dépense :</strong> Dépense <strong>&lt;500k FCFA</strong> payée immédiatement avec un fournisseur non régulier et pas soumis à la BRS</p>
+</div>
+RÉCAPITULATIF DES MODIFICATIONS
+✅ Renommer "Montant TTC affiché" → "Montant TTC à régler"
+✅ Modifier 2 catégories en BDD (Frais de maintenance + Achats matières premières)
+✅ Ordre affichage catégories : Matières premières en 1er, Prestations en 2ème
+✅ BRS automatique : Supprimer toggle, détection auto selon TVA + catégorie
+✅ Extension BRS à 3 catégories : Prestation + Transports + Maintenance
+✅ Affichage message BRS avec calculs : "Retenue X FCFA sur Y FCFA"
+✅ Nouveau texte descriptif Type de facture (plus court)
+VALIDATION BACKEND
+Le backend Phase 1 doit accepter has_brs = true pour les 3 catégories :
+"Achats d'études et prestations de services"
+"Transports sur ventes"
+"Autres entretiens et réparations"
+Vérifier la validation backend (ligne concernée dans Phase 1) :
+Ancien code backend (à modifier) :
+if (has_brs === true) {
+  const category = await db.query.categories.findFirst({
+    where: eq(categories.id, category_id)
+  });
+  
+  if (vat_applicable === true || category?.account_name !== "Achats d'études et prestations de services") {
+    return res.status(400).json({ 
+      error: "BRS applicable uniquement pour Prestation de services sans TVA" 
+    });
+  }
+}
+Nouveau code backend :
+if (has_brs === true) {
+  const category = await db.query.categories.findFirst({
+    where: eq(categories.id, category_id)
+  });
+  
+  const brsCategoryNames = [
+    "Achats d'études et prestations de services",
+    "Transports sur ventes",
+    "Autres entretiens et réparations"
+  ];
+  
+  if (vat_applicable === true || !brsCategoryNames.includes(category?.account_name)) {
+    return res.status(400).json({ 
+      error: "BRS applicable uniquement pour Prestation de services, Transports ou Frais de maintenance sans TVA" 
+    });
+  }
+}
+TESTS APRÈS CORRECTIONS
+Test 1 : BRS Prestation de services
+Catégorie "Prestation de services", TVA = Non, Montant 100 000 FCFA
+Vérifier message BRS affiché : "Retenue BRS : 5 263 FCFA sur 105 263 FCFA"
+Vérifier Type forcé "Facture Fournisseur"
+Test 2 : BRS Transports
+Catégorie "Transports (ex. camions)", TVA = Non, Montant 200 000 FCFA
+Vérifier message BRS affiché : "Retenue BRS : 10 526 FCFA sur 210 526 FCFA"
+Test 3 : BRS Maintenance
+Catégorie "Frais de maintenance (service)", TVA = Non, Montant 300 000 FCFA
+Vérifier message BRS affiché : "Retenue BRS : 15 789 FCFA sur 315 789 FCFA"
+Test 4 : Pas de BRS si TVA = Oui
+Catégorie "Prestation de services", TVA = Oui
+Vérifier message BRS NON affiché
+Vérifier affichage Montant HT
+Test 5 : Ordre catégories
+Ouvrir dropdown catégories
+Vérifier 1er = "Achats de matières premières et fournitures"
+Vérifier 2ème = "Prestation de services"
+Test 6 : Nouveau texte Type facture
+Vérifier texte plus court affiché correctement

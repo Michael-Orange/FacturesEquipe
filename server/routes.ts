@@ -267,16 +267,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // ==================== VALIDATION 4: BRS only for Prestation de services + TVA=Non ====================
+      // ==================== VALIDATION 4: BRS only for specific categories + TVA=Non ====================
       if (parsedHasBrs) {
+        const brsCategoryNames = [
+          "Achats d'études et prestations de services",
+          "Transports sur ventes",
+          "Autres entretiens et réparations"
+        ];
+        
         if (parsedVatApplicable) {
           return res.status(400).json({ 
-            message: "BRS applicable uniquement pour Prestation de services sans TVA" 
+            message: "BRS applicable uniquement pour Prestation de services, Transports ou Frais de maintenance sans TVA" 
           });
         }
-        if (categoryData && categoryData.accountName !== "Achats d'études et prestations de services") {
+        if (categoryData && !brsCategoryNames.includes(categoryData.accountName)) {
           return res.status(400).json({ 
-            message: "BRS applicable uniquement pour Prestation de services sans TVA" 
+            message: "BRS applicable uniquement pour Prestation de services, Transports ou Frais de maintenance sans TVA" 
           });
         }
       }
