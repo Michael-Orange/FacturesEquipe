@@ -684,8 +684,12 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
             <span className="font-medium">Export formaté pour import dans Axonaut</span>
           </div>
           <div className="flex justify-between py-2 border-b">
-            <span className="text-muted-foreground">Export Zoho</span>
+            <span className="text-muted-foreground">Export Zoho Dépenses</span>
             <span className="font-medium">Export des dépenses au format Zoho Books (27 colonnes)</span>
+          </div>
+          <div className="flex justify-between py-2 border-b">
+            <span className="text-muted-foreground">Export Zoho Bills</span>
+            <span className="font-medium">Factures fournisseurs + Rapport nouveaux fournisseurs BRS</span>
           </div>
           <div className="flex justify-between py-2">
             <span className="text-muted-foreground">Archivage</span>
