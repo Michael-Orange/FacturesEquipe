@@ -7,7 +7,7 @@ import { storage, generateExpenseNumber } from "./storage";
 import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
-import { insertInvoiceSchema, insertSupplierSchema, invoices } from "@shared/schema";
+import { insertInvoiceSchema, insertSupplierSchema, invoices, InvoiceWithDetails } from "@shared/schema";
 import { isNull } from "drizzle-orm";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -873,82 +873,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Helper function to map internal categories to Axonaut categories
-  function categoryToAxonaut(category: string): string {
-    const mapping: Record<string, string> = {
-      "Essence": "Fournitures non stockables – Autres énergies",
-      "Restauration": "Réceptions", // Support legacy value
-      "Restauration, boissons et petits achats alimentaires": "Réceptions",
-      "Fourniture Matériaux": "Achats de matières premières et fournitures liées",
-      "Achats Prestas": "Achats d'études et prestations de services (sous-traitance directe projets)",
-      "Transport de matériel": "Transports sur achats",
-      "Transport de personnes": "Voyages Et Deplacements",
-      "Hébergement": "Voyages Et Deplacements",
-      "Telephone/Internet": "Frais de télécommunications",
-    };
-    return mapping[category] || "";
+  // Helper function to generate Axonaut CSV for a user
+  function generateAxonautCSV(invoices: InvoiceWithDetails[]): string {
+    // Headers exactly as in the Axonaut template (24 columns)
+    const csvHeader = "Date *;Titre *;Nom du fournisseur *;Code tiers fournisseur;Adresse - Rue du fournisseur;Adresse - Code postal;Adresse - Ville;Montant HT *;Montant TTC *;Montant TVA 20% *;Montant TVA 10% *;MontantTVA 5.5% *;Montant TTC du *;Categorie depense;Montant taxe 8.5%;Montant taxe 2.1%;Montant taxe22%;Montant taxe 11%;Montant taxe 6%;Montant taxe 3%;Montant taxe 12%;Montant taxe 21%;Montant taxe 18%;Numéro projet\n";
+    
+    const csvRows = invoices.map((inv) => {
+      const invoiceDate = format(new Date(inv.invoiceDate), "dd/MM/yyyy");
+      
+      // Titre: description ou "Facture [fournisseur]"
+      const titre = inv.description || `Facture ${inv.supplierName}`;
+      
+      // Montant TTC (always use amount_display_ttc, not amount_real_ttc)
+      const ttc = parseFloat(inv.amountDisplayTTC);
+      
+      // Montant HT: si TVA=Oui → TTC / 1.18, sinon → TTC (HT = TTC car pas de TVA)
+      const montantHT = inv.vatApplicable 
+        ? (ttc / 1.18).toFixed(2)
+        : ttc.toFixed(2);
+      
+      // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
+      const montantTaxe18 = inv.vatApplicable 
+        ? (ttc - (ttc / 1.18)).toFixed(2)
+        : "0";
+      
+      // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
+      let numeroProjet = "";
+      if (inv.projectNumber) {
+        const match = inv.projectNumber.match(/\d+$/);
+        numeroProjet = match ? match[0] : "";
+      }
+      
+      // Categorie: use categoryAccountName from LEFT JOIN categories (Zoho account names)
+      const categorie = inv.categoryAccountName || "";
+
+      return [
+        invoiceDate,                    // Date *
+        titre,                          // Titre *
+        inv.supplierName,               // Nom du fournisseur *
+        "",                             // Code tiers fournisseur
+        "",                             // Adresse - Rue du fournisseur
+        "",                             // Adresse - Code postal
+        "",                             // Adresse - Ville
+        montantHT,                      // Montant HT *
+        ttc.toFixed(2),                 // Montant TTC *
+        "0",                            // Montant TVA 20% *
+        "0",                            // Montant TVA 10% *
+        "0",                            // MontantTVA 5.5% *
+        invoiceDate,                    // Montant TTC du * (même date)
+        categorie,                      // Categorie depense (from categories.account_name)
+        "0",                            // Montant taxe 8.5%
+        "0",                            // Montant taxe 2.1%
+        "0",                            // Montant taxe22%
+        "0",                            // Montant taxe 11%
+        "0",                            // Montant taxe 6%
+        "0",                            // Montant taxe 3%
+        "0",                            // Montant taxe 12%
+        "0",                            // Montant taxe 21%
+        montantTaxe18,                  // Montant taxe 18%
+        numeroProjet,                   // Numéro projet
+      ]
+        .map((field) => `"${field}"`)
+        .join(";");
+    });
+
+    return csvHeader + csvRows.join("\n");
   }
 
   // Admin export Axonaut CSV - Michael (protected)
   app.get("/api/admin/export-axonaut-michael", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
       const invoices = await storage.getInvoicesByUser("Michael");
-
-      // Headers exactly as in the template
-      const csvHeader = "Date *;Titre *;Nom du fournisseur *;Code tiers fournisseur;Adresse - Rue du fournisseur;Adresse - Code postal;Adresse - Ville;Montant HT *;Montant TTC *;Montant TVA 20% *;Montant TVA 10% *;MontantTVA 5.5% *;Montant TTC du *;Categorie depense;Montant taxe 8.5%;Montant taxe 2.1%;Montant taxe22%;Montant taxe 11%;Montant taxe 6%;Montant taxe 3%;Montant taxe 12%;Montant taxe 21%;Montant taxe 18%; Numéro projet\n";
-      
-      const csvRows = invoices.map((inv) => {
-        const invoiceDate = format(new Date(inv.invoiceDate), "dd/MM/yyyy");
-        
-        // Titre: description ou "Facture [fournisseur]"
-        const titre = inv.description || `Facture ${inv.supplierName}`;
-        
-        // Montant HT: si TVA=Oui → amountHT, sinon → amountDisplayTTC
-        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountDisplayTTC) : inv.amountDisplayTTC;
-        
-        // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
-        const montantTaxe18 = inv.vatApplicable && inv.amountHT 
-          ? (parseFloat(inv.amountDisplayTTC) - parseFloat(inv.amountHT)).toFixed(2)
-          : "0";
-        
-        // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
-        let numeroProjet = "";
-        if (inv.projectNumber) {
-          const match = inv.projectNumber.match(/\d+$/); // Extraire les chiffres à la fin
-          numeroProjet = match ? match[0] : "";
-        }
-
-        return [
-          invoiceDate,                    // Date *
-          titre,                          // Titre *
-          inv.supplierName,               // Nom du fournisseur *
-          "",                             // Code tiers fournisseur
-          "",                             // Adresse - Rue du fournisseur
-          "",                             // Adresse - Code postal
-          "",                             // Adresse - Ville
-          montantHT,                      // Montant HT *
-          inv.amountDisplayTTC,                  // Montant TTC *
-          "0",                            // Montant TVA 20% *
-          "0",                            // Montant TVA 10% *
-          "0",                            // MontantTVA 5.5% *
-          invoiceDate,                    // Montant TTC du * (même date)
-          categoryToAxonaut(inv.category), // Categorie depense
-          "",                             // Montant taxe 8.5%
-          "",                             // Montant taxe 2.1%
-          "",                             // Montant taxe22%
-          "",                             // Montant taxe 11%
-          "",                             // Montant taxe 6%
-          "",                             // Montant taxe 3%
-          "",                             // Montant taxe 12%
-          "",                             // Montant taxe 21%
-          montantTaxe18,                  // Montant taxe 18%
-          numeroProjet,                   // Numéro projet
-        ]
-          .map((field) => `"${field}"`)
-          .join(";");
-      });
-
-      const csv = csvHeader + csvRows.join("\n");
+      const csv = generateAxonautCSV(invoices);
 
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="axonaut_michael_${format(new Date(), "yyyy-MM-dd")}.csv"`);
@@ -963,62 +959,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/export-axonaut-marine", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
       const invoices = await storage.getInvoicesByUser("Marine");
-
-      // Headers exactly as in the template
-      const csvHeader = "Date *;Titre *;Nom du fournisseur *;Code tiers fournisseur;Adresse - Rue du fournisseur;Adresse - Code postal;Adresse - Ville;Montant HT *;Montant TTC *;Montant TVA 20% *;Montant TVA 10% *;MontantTVA 5.5% *;Montant TTC du *;Categorie depense;Montant taxe 8.5%;Montant taxe 2.1%;Montant taxe22%;Montant taxe 11%;Montant taxe 6%;Montant taxe 3%;Montant taxe 12%;Montant taxe 21%;Montant taxe 18%; Numéro projet\n";
-      
-      const csvRows = invoices.map((inv) => {
-        const invoiceDate = format(new Date(inv.invoiceDate), "dd/MM/yyyy");
-        
-        // Titre: description ou "Facture [fournisseur]"
-        const titre = inv.description || `Facture ${inv.supplierName}`;
-        
-        // Montant HT: si TVA=Oui → amountHT, sinon → amountDisplayTTC
-        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountDisplayTTC) : inv.amountDisplayTTC;
-        
-        // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
-        const montantTaxe18 = inv.vatApplicable && inv.amountHT 
-          ? (parseFloat(inv.amountDisplayTTC) - parseFloat(inv.amountHT)).toFixed(2)
-          : "0";
-        
-        // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
-        let numeroProjet = "";
-        if (inv.projectNumber) {
-          const match = inv.projectNumber.match(/\d+$/); // Extraire les chiffres à la fin
-          numeroProjet = match ? match[0] : "";
-        }
-
-        return [
-          invoiceDate,                    // Date *
-          titre,                          // Titre *
-          inv.supplierName,               // Nom du fournisseur *
-          "",                             // Code tiers fournisseur
-          "",                             // Adresse - Rue du fournisseur
-          "",                             // Adresse - Code postal
-          "",                             // Adresse - Ville
-          montantHT,                      // Montant HT *
-          inv.amountDisplayTTC,                  // Montant TTC *
-          "0",                            // Montant TVA 20% *
-          "0",                            // Montant TVA 10% *
-          "0",                            // MontantTVA 5.5% *
-          invoiceDate,                    // Montant TTC du * (même date)
-          categoryToAxonaut(inv.category), // Categorie depense
-          "",                             // Montant taxe 8.5%
-          "",                             // Montant taxe 2.1%
-          "",                             // Montant taxe22%
-          "",                             // Montant taxe 11%
-          "",                             // Montant taxe 6%
-          "",                             // Montant taxe 3%
-          "",                             // Montant taxe 12%
-          "",                             // Montant taxe 21%
-          montantTaxe18,                  // Montant taxe 18%
-          numeroProjet,                   // Numéro projet
-        ]
-          .map((field) => `"${field}"`)
-          .join(";");
-      });
-
-      const csv = csvHeader + csvRows.join("\n");
+      const csv = generateAxonautCSV(invoices);
 
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="axonaut_marine_${format(new Date(), "yyyy-MM-dd")}.csv"`);
@@ -1033,62 +974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/export-axonaut-fatou", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
       const invoices = await storage.getInvoicesByUser("Fatou");
-
-      // Headers exactly as in the template
-      const csvHeader = "Date *;Titre *;Nom du fournisseur *;Code tiers fournisseur;Adresse - Rue du fournisseur;Adresse - Code postal;Adresse - Ville;Montant HT *;Montant TTC *;Montant TVA 20% *;Montant TVA 10% *;MontantTVA 5.5% *;Montant TTC du *;Categorie depense;Montant taxe 8.5%;Montant taxe 2.1%;Montant taxe22%;Montant taxe 11%;Montant taxe 6%;Montant taxe 3%;Montant taxe 12%;Montant taxe 21%;Montant taxe 18%; Numéro projet\n";
-      
-      const csvRows = invoices.map((inv) => {
-        const invoiceDate = format(new Date(inv.invoiceDate), "dd/MM/yyyy");
-        
-        // Titre: description ou "Facture [fournisseur]"
-        const titre = inv.description || `Facture ${inv.supplierName}`;
-        
-        // Montant HT: si TVA=Oui → amountHT, sinon → amountDisplayTTC
-        const montantHT = inv.vatApplicable ? (inv.amountHT || inv.amountDisplayTTC) : inv.amountDisplayTTC;
-        
-        // Montant taxe 18%: si TVA=Oui → TTC - HT, sinon → 0
-        const montantTaxe18 = inv.vatApplicable && inv.amountHT 
-          ? (parseFloat(inv.amountDisplayTTC) - parseFloat(inv.amountHT)).toFixed(2)
-          : "0";
-        
-        // Numéro projet: extraire uniquement le numéro (2025-34 → 34)
-        let numeroProjet = "";
-        if (inv.projectNumber) {
-          const match = inv.projectNumber.match(/\d+$/); // Extraire les chiffres à la fin
-          numeroProjet = match ? match[0] : "";
-        }
-
-        return [
-          invoiceDate,                    // Date *
-          titre,                          // Titre *
-          inv.supplierName,               // Nom du fournisseur *
-          "",                             // Code tiers fournisseur
-          "",                             // Adresse - Rue du fournisseur
-          "",                             // Adresse - Code postal
-          "",                             // Adresse - Ville
-          montantHT,                      // Montant HT *
-          inv.amountDisplayTTC,                  // Montant TTC *
-          "0",                            // Montant TVA 20% *
-          "0",                            // Montant TVA 10% *
-          "0",                            // MontantTVA 5.5% *
-          invoiceDate,                    // Montant TTC du * (même date)
-          categoryToAxonaut(inv.category), // Categorie depense
-          "",                             // Montant taxe 8.5%
-          "",                             // Montant taxe 2.1%
-          "",                             // Montant taxe22%
-          "",                             // Montant taxe 11%
-          "",                             // Montant taxe 6%
-          "",                             // Montant taxe 3%
-          "",                             // Montant taxe 12%
-          "",                             // Montant taxe 21%
-          montantTaxe18,                  // Montant taxe 18%
-          numeroProjet,                   // Numéro projet
-        ]
-          .map((field) => `"${field}"`)
-          .join(";");
-      });
-
-      const csv = csvHeader + csvRows.join("\n");
+      const csv = generateAxonautCSV(invoices);
 
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="axonaut_fatou_${format(new Date(), "yyyy-MM-dd")}.csv"`);
