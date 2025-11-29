@@ -119,6 +119,7 @@ export function InvoiceForm({
   const [isCategoryDisabled, setIsCategoryDisabled] = useState(false);
   const [isTVADisabled, setIsTVADisabled] = useState(false);
   const [isInvoiceTypeDisabled, setIsInvoiceTypeDisabled] = useState(false);
+  const [defaultCategorySet, setDefaultCategorySet] = useState(false);
 
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -156,6 +157,9 @@ export function InvoiceForm({
   const hasBrs = form.watch("hasBrs");
   const invoiceType = form.watch("invoiceType");
 
+  // Check if essential fields are filled (supplier + amount)
+  const areEssentialFieldsFilled = !!(supplierId && amountDisplayTTC && parseFloat(amountDisplayTTC) > 0);
+
   const handleSupplierChange = (id: string) => {
     form.setValue("supplierId", id);
     const supplier = suppliers.find((s) => s.id === id);
@@ -170,6 +174,19 @@ export function InvoiceForm({
       form.setValue("category", category.appName);
     }
   };
+
+  // Set default category to "Achats de matières premières et fournitures" (ID 13)
+  useEffect(() => {
+    if (!categories.length || defaultCategorySet) return;
+    
+    const defaultCategory = categories.find((c) => c.id === 13);
+    if (defaultCategory && !categoryId) {
+      form.setValue("categoryId", defaultCategory.id.toString());
+      form.setValue("category", defaultCategory.appName);
+      setSelectedCategory(defaultCategory);
+      setDefaultCategorySet(true);
+    }
+  }, [categories, defaultCategorySet, categoryId, form]);
 
   useEffect(() => {
     if (!categories.length) return;
@@ -344,6 +361,7 @@ export function InvoiceForm({
       setSelectedCategory(null);
       setAmountHT(null);
       setAmountRealTTC(null);
+      setDefaultCategorySet(false);
 
       setTimeout(() => setIsSuccess(false), 5000);
     } catch (error) {
@@ -440,20 +458,28 @@ export function InvoiceForm({
         )}
       </div>
 
+      {!areEssentialFieldsFilled && (
+        <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-md text-sm text-amber-700 dark:text-amber-300">
+          <Info className="h-4 w-4 flex-shrink-0" />
+          <span>Veuillez d'abord renseigner le fournisseur et le montant TTC</span>
+        </div>
+      )}
+
       <div className="space-y-2">
-        <Label className="text-base font-medium">Achat pour le stock ?</Label>
+        <Label className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>Achat pour le stock ?</Label>
         <RadioGroup
           value={isStockPurchase ? "yes" : "no"}
           onValueChange={(value) => form.setValue("isStockPurchase", value === "yes")}
           className="flex gap-6"
+          disabled={!areEssentialFieldsFilled}
         >
           <div className="flex items-center space-x-2">
-            <RadioGroupItem value="no" id="stock-no" data-testid="radio-stock-no" />
-            <Label htmlFor="stock-no" className="cursor-pointer font-normal">Non</Label>
+            <RadioGroupItem value="no" id="stock-no" data-testid="radio-stock-no" disabled={!areEssentialFieldsFilled} />
+            <Label htmlFor="stock-no" className={`cursor-pointer font-normal ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>Non</Label>
           </div>
           <div className="flex items-center space-x-2">
-            <RadioGroupItem value="yes" id="stock-yes" data-testid="radio-stock-yes" />
-            <Label htmlFor="stock-yes" className="cursor-pointer font-normal">Oui</Label>
+            <RadioGroupItem value="yes" id="stock-yes" data-testid="radio-stock-yes" disabled={!areEssentialFieldsFilled} />
+            <Label htmlFor="stock-yes" className={`cursor-pointer font-normal ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>Oui</Label>
           </div>
         </RadioGroup>
         {isStockPurchase && (
@@ -465,13 +491,13 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="categoryId" className="text-base font-medium">
+        <Label htmlFor="categoryId" className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>
           Catégorie *
         </Label>
         <Select
           value={categoryId}
           onValueChange={handleCategoryChange}
-          disabled={isCategoryDisabled}
+          disabled={isCategoryDisabled || !areEssentialFieldsFilled}
         >
           <SelectTrigger id="categoryId" className="h-14 text-base" data-testid="select-category">
             <SelectValue placeholder="Sélectionner une catégorie..." />
@@ -498,20 +524,20 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <Label className="text-base font-medium">Facture avec TVA (18%) ?</Label>
+        <Label className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>Facture avec TVA (18%) ?</Label>
         <RadioGroup
           value={vatApplicable ? "yes" : "no"}
           onValueChange={(value) => form.setValue("vatApplicable", value === "yes")}
           className="flex gap-6"
-          disabled={isTVADisabled}
+          disabled={isTVADisabled || !areEssentialFieldsFilled}
         >
           <div className="flex items-center space-x-2">
-            <RadioGroupItem value="no" id="vat-no" data-testid="radio-vat-no" disabled={isTVADisabled} />
-            <Label htmlFor="vat-no" className={`cursor-pointer font-normal ${isTVADisabled ? "opacity-50" : ""}`}>Non</Label>
+            <RadioGroupItem value="no" id="vat-no" data-testid="radio-vat-no" disabled={isTVADisabled || !areEssentialFieldsFilled} />
+            <Label htmlFor="vat-no" className={`cursor-pointer font-normal ${(isTVADisabled || !areEssentialFieldsFilled) ? "opacity-50" : ""}`}>Non</Label>
           </div>
           <div className="flex items-center space-x-2">
-            <RadioGroupItem value="yes" id="vat-yes" data-testid="radio-vat-yes" disabled={isTVADisabled} />
-            <Label htmlFor="vat-yes" className={`cursor-pointer font-normal ${isTVADisabled ? "opacity-50" : ""}`}>Oui</Label>
+            <RadioGroupItem value="yes" id="vat-yes" data-testid="radio-vat-yes" disabled={isTVADisabled || !areEssentialFieldsFilled} />
+            <Label htmlFor="vat-yes" className={`cursor-pointer font-normal ${(isTVADisabled || !areEssentialFieldsFilled) ? "opacity-50" : ""}`}>Oui</Label>
           </div>
         </RadioGroup>
         {isTVADisabled && (
@@ -557,30 +583,30 @@ export function InvoiceForm({
       )}
 
       <div className="space-y-3">
-        <Label className="text-base font-medium">Type de facture *</Label>
-        <Card className="p-3 bg-muted/30 text-sm" data-testid="invoice-type-description">
+        <Label className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>Type de facture *</Label>
+        <Card className={`p-3 bg-muted/30 text-sm ${!areEssentialFieldsFilled ? "opacity-50" : ""}`} data-testid="invoice-type-description">
           <p className="mb-2">
-            <strong>Facture Fournisseur :</strong> toute Facture <strong>&gt;500k FCFA</strong> OU toute facture à régler ultérieurement OU toute facture fournisseur régulier important OU toute facture prestation avec BRS
+            <strong>Facture Fournisseur :</strong> toute facture à régler ultérieurement OU toute facture fournisseur régulier important OU toute facture prestation avec BRS OU toute Facture &gt;500k FCFA
           </p>
           <p>
-            <strong>Dépense :</strong> Dépense <strong>&lt;500k FCFA</strong> payée immédiatement avec un fournisseur non régulier et pas soumis à la BRS
+            <strong>Dépense :</strong> Dépense &lt;500k FCFA payée immédiatement avec un fournisseur non régulier et pas soumis à la BRS
           </p>
         </Card>
         <RadioGroup
           value={invoiceType}
           onValueChange={(value) => form.setValue("invoiceType", value as "expense" | "supplier_invoice")}
           className="flex gap-6"
-          disabled={isInvoiceTypeDisabled}
+          disabled={isInvoiceTypeDisabled || !areEssentialFieldsFilled}
         >
           <div className="flex items-center space-x-2">
-            <RadioGroupItem value="expense" id="type-expense" data-testid="radio-type-expense" disabled={isInvoiceTypeDisabled} />
-            <Label htmlFor="type-expense" className={`cursor-pointer font-normal ${isInvoiceTypeDisabled ? "opacity-50" : ""}`}>
+            <RadioGroupItem value="expense" id="type-expense" data-testid="radio-type-expense" disabled={isInvoiceTypeDisabled || !areEssentialFieldsFilled} />
+            <Label htmlFor="type-expense" className={`cursor-pointer font-normal ${(isInvoiceTypeDisabled || !areEssentialFieldsFilled) ? "opacity-50" : ""}`}>
               Dépense
             </Label>
           </div>
           <div className="flex items-center space-x-2">
-            <RadioGroupItem value="supplier_invoice" id="type-supplier" data-testid="radio-type-supplier" disabled={isInvoiceTypeDisabled} />
-            <Label htmlFor="type-supplier" className={`cursor-pointer font-normal ${isInvoiceTypeDisabled ? "opacity-50" : ""}`}>
+            <RadioGroupItem value="supplier_invoice" id="type-supplier" data-testid="radio-type-supplier" disabled={isInvoiceTypeDisabled || !areEssentialFieldsFilled} />
+            <Label htmlFor="type-supplier" className={`cursor-pointer font-normal ${(isInvoiceTypeDisabled || !areEssentialFieldsFilled) ? "opacity-50" : ""}`}>
               Facture Fournisseur
             </Label>
           </div>
@@ -613,7 +639,7 @@ export function InvoiceForm({
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="description" className="text-base font-medium">
+        <Label htmlFor="description" className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>
           Description *
         </Label>
         <Textarea
@@ -622,6 +648,7 @@ export function InvoiceForm({
           {...form.register("description")}
           className="min-h-24 text-base resize-none"
           data-testid="textarea-description"
+          disabled={!areEssentialFieldsFilled}
         />
         {form.formState.errors.description && (
           <p className="text-sm text-destructive">{form.formState.errors.description.message}</p>
@@ -629,7 +656,7 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="invoiceDate" className="text-base font-medium">
+        <Label htmlFor="invoiceDate" className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>
           Date de la facture *
         </Label>
         <Input
@@ -638,6 +665,7 @@ export function InvoiceForm({
           {...form.register("invoiceDate")}
           className="h-14 text-base"
           data-testid="input-invoice-date"
+          disabled={!areEssentialFieldsFilled}
         />
         {form.formState.errors.invoiceDate && (
           <p className="text-sm text-destructive">{form.formState.errors.invoiceDate.message}</p>
@@ -648,15 +676,17 @@ export function InvoiceForm({
         projects={projects}
         value={form.watch("projectId") || ""}
         onChange={(value) => form.setValue("projectId", value)}
+        disabled={!areEssentialFieldsFilled}
       />
 
       <div className="space-y-2">
-        <Label htmlFor="paymentType" className="text-base font-medium">
+        <Label htmlFor="paymentType" className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>
           Type de règlement *
         </Label>
         <Select
           value={form.watch("paymentType")}
           onValueChange={(value) => form.setValue("paymentType", value)}
+          disabled={!areEssentialFieldsFilled}
         >
           <SelectTrigger id="paymentType" className="h-14 text-base" data-testid="select-payment-type">
             <SelectValue placeholder="Sélectionner un type de règlement..." />
@@ -692,7 +722,7 @@ export function InvoiceForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="file-upload" className="text-base font-medium">
+        <Label htmlFor="file-upload" className={`text-base font-medium ${!areEssentialFieldsFilled ? "opacity-50" : ""}`}>
           Facture (PDF ou Image) *
         </Label>
         <div className="relative">
@@ -703,10 +733,11 @@ export function InvoiceForm({
             onChange={handleFileChange}
             className="sr-only"
             data-testid="input-file-upload"
+            disabled={!areEssentialFieldsFilled}
           />
           <label
             htmlFor="file-upload"
-            className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover-elevate active-elevate-2 transition-colors"
+            className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg transition-colors ${!areEssentialFieldsFilled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover-elevate active-elevate-2"}`}
           >
             {selectedFile ? (
               <div className="flex flex-col items-center gap-2">

@@ -20,9 +20,10 @@ interface ProjectSelectProps {
   projects: Project[];
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }
 
-export function ProjectSelect({ projects, value, onChange }: ProjectSelectProps) {
+export function ProjectSelect({ projects, value, onChange, disabled = false }: ProjectSelectProps) {
   const projects2025 = projects
     .filter((p) => p.number.startsWith("2025-"))
     .sort((a, b) => b.number.localeCompare(a.number));
@@ -37,10 +38,10 @@ export function ProjectSelect({ projects, value, onChange }: ProjectSelectProps)
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="project" className="text-base font-medium">
+      <Label htmlFor="project" className={`text-base font-medium ${disabled ? "opacity-50" : ""}`}>
         Projet/Opération
       </Label>
-      <Select value={value} onValueChange={onChange}>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger
           id="project"
           data-testid="select-project"
