@@ -31,6 +31,58 @@ export interface InvoiceFilters {
   sortOrder?: 'asc' | 'desc';
 }
 
+/**
+ * Generates an expense number in format DEP-UU-YYMM-XXX
+ * UU = first 2 letters of userName (uppercase)
+ * YYMM = year (2 digits) + month (2 digits) from invoiceDate
+ * XXX = sequence number (001, 002, etc.) per user per month
+ */
+export async function generateExpenseNumber(userName: string, invoiceDate: Date): Promise<string> {
+  // Get first 2 letters of user name, uppercase, remove accents
+  const userPrefix = userName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove accents
+    .substring(0, 2)
+    .toUpperCase();
+
+  // Format YYMM from invoice date
+  const year = invoiceDate.getFullYear().toString().slice(-2);
+  const month = (invoiceDate.getMonth() + 1).toString().padStart(2, "0");
+  const yearMonth = `${year}${month}`;
+
+  // Build prefix for search
+  const prefix = `DEP-${userPrefix}-${yearMonth}-`;
+
+  // Find the last expense number for this user and month
+  const result = await db
+    .select({ invoiceNumber: invoices.invoiceNumber })
+    .from(invoices)
+    .where(
+      and(
+        eq(invoices.userName, userName),
+        eq(invoices.invoiceType, "expense"),
+        sql`${invoices.invoiceNumber} LIKE ${prefix + '%'}`
+      )
+    )
+    .orderBy(desc(invoices.invoiceNumber))
+    .limit(1);
+
+  let sequence = 1;
+  if (result.length > 0 && result[0].invoiceNumber) {
+    // Extract last 3 digits and increment
+    const lastNumber = result[0].invoiceNumber;
+    const lastSequence = parseInt(lastNumber.slice(-3), 10);
+    if (!isNaN(lastSequence)) {
+      sequence = lastSequence + 1;
+    }
+  }
+
+  // Format sequence with padding (001, 002, etc.)
+  const sequenceStr = sequence.toString().padStart(3, "0");
+
+  return `${prefix}${sequenceStr}`;
+}
+
 export interface IStorage {
   // User tokens
   getUserTokenByToken(token: string): Promise<UserToken | undefined>;

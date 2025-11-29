@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
-import { storage } from "./storage";
+import { storage, generateExpenseNumber } from "./storage";
 import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
@@ -293,14 +293,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Type de facture invalide (expense ou supplier_invoice)" });
       }
 
-      // ==================== VALIDATION 2: Invoice number required for supplier_invoice ====================
-      let finalInvoiceNumber = invoiceNumber;
+      // ==================== VALIDATION 2: Invoice number generation/validation ====================
+      let finalInvoiceNumber: string | null = null;
+      
       if (invoiceType === 'supplier_invoice') {
+        // Supplier invoice: user must provide invoice number
         if (!invoiceNumber || invoiceNumber.trim() === '') {
           return res.status(400).json({ message: "Numéro de facture obligatoire pour les Factures Fournisseur" });
         }
+        finalInvoiceNumber = invoiceNumber.trim();
       } else if (invoiceType === 'expense') {
-        finalInvoiceNumber = null; // Force NULL for expenses
+        // Expense: auto-generate DEP-UU-YYMM-XXX number
+        const parsedInvoiceDate = new Date(invoiceDate);
+        finalInvoiceNumber = await generateExpenseNumber(userName, parsedInvoiceDate);
+        console.log("Generated expense number:", finalInvoiceNumber);
       }
 
       // ==================== VALIDATION 3: Stock purchase category consistency ====================
@@ -624,11 +630,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // VALIDATION 5: Invoice number required for supplier_invoice
-      if (invoiceType === "supplier_invoice" && !invoiceNumber) {
-        return res.status(400).json({ 
-          message: "Le numéro de facture est requis pour les Factures Fournisseur" 
-        });
+      // ==================== INVOICE NUMBER MANAGEMENT ====================
+      // Determine original type and current type for change detection
+      const originalType = existingInvoice.invoiceType || 'expense';
+      const newType = invoiceType || originalType;
+      
+      let finalInvoiceNumber: string | null = null;
+      
+      // CASE 1: No type change
+      if (originalType === newType) {
+        if (newType === 'expense') {
+          // Expense stays expense: keep original number (frozen)
+          finalInvoiceNumber = existingInvoice.invoiceNumber;
+        } else {
+          // Supplier invoice stays supplier invoice: use provided number (modifiable)
+          if (!invoiceNumber || invoiceNumber.trim() === '') {
+            return res.status(400).json({ 
+              message: "Le numéro de facture est requis pour les Factures Fournisseur" 
+            });
+          }
+          finalInvoiceNumber = invoiceNumber.trim();
+        }
+      }
+      // CASE 2: Type change
+      else {
+        if (originalType === 'expense' && newType === 'supplier_invoice') {
+          // Expense → Supplier invoice: require new manual number
+          if (!invoiceNumber || invoiceNumber.trim() === '') {
+            return res.status(400).json({ 
+              message: "Numéro de facture obligatoire lors du changement vers Facture Fournisseur" 
+            });
+          }
+          finalInvoiceNumber = invoiceNumber.trim();
+        } else if (originalType === 'supplier_invoice' && newType === 'expense') {
+          // Supplier invoice → Expense: generate new DEP number
+          const finalDate = invoiceDate ? new Date(invoiceDate) : existingInvoice.invoiceDate;
+          finalInvoiceNumber = await generateExpenseNumber(existingInvoice.userName, finalDate);
+          console.log("Generated expense number on type change:", finalInvoiceNumber);
+        }
       }
 
       // Calculate amounts
@@ -655,8 +694,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amountHT: calculatedAmountHT,
         hasBrs: parsedHasBrs,
         amountRealTTC: calculatedAmountRealTTC,
-        invoiceType: invoiceType || "expense",
-        invoiceNumber: invoiceType === "supplier_invoice" ? invoiceNumber : null,
+        invoiceType: newType,
+        invoiceNumber: finalInvoiceNumber,
         description: description || null,
         paymentType: paymentType || existingInvoice.paymentType,
         projectId: projectId || null,
