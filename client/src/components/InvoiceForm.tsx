@@ -539,15 +539,20 @@ export function InvoiceForm({
 
       {isBRSApplicable && parseFloat(amountDisplayTTC) > 0 && (
         <div 
-          className="bg-orange-50 dark:bg-orange-950/50 border-l-4 border-orange-500 p-3 rounded-r-md"
+          className="bg-gray-100 dark:bg-gray-800 border-l-4 border-slate-400 dark:border-slate-500 p-3 rounded-r-md"
           data-testid="brs-info-box"
         >
-          <strong className="block mb-1 text-orange-700 dark:text-orange-400">
-            ⚠️ Facture soumise à la retenue à la source (BRS) de 5%
-          </strong>
-          <p className="text-sm text-gray-700 dark:text-gray-300">
-            Retenue BRS : {formatAmount(0.05 * (parseFloat(amountDisplayTTC) / 0.95))} FCFA sur {formatAmount(parseFloat(amountDisplayTTC) / 0.95)} FCFA
-          </p>
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 text-slate-500 dark:text-slate-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <strong className="block mb-1 text-gray-700 dark:text-gray-300">
+                Facture soumise à la retenue à la source (BRS) de 5%
+              </strong>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Retenue BRS : {formatAmount(0.05 * (parseFloat(amountDisplayTTC) / 0.95))} FCFA sur {formatAmount(parseFloat(amountDisplayTTC) / 0.95)} FCFA
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
