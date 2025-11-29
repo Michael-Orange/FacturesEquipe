@@ -1136,6 +1136,147 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================
+  // ZOHO EXPORTS - Factures Fournisseurs (Bills)
+  // ============================================
+
+  // Helper function to generate Zoho CSV for supplier invoices (Bills format - 29 columns)
+  function generateZohoBillsCSV(billsData: any[]): string {
+    // Headers exactly as in Zoho Books Bills import template (29 columns)
+    const csvHeader = "Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name\n";
+    
+    const csvRows = billsData.map((bill) => {
+      const billDate = format(new Date(bill.invoiceDate), "yyyy-MM-dd");
+      
+      // Account from categories.account_name
+      const account = bill.categoryAccountName || "";
+      
+      // Rate: use amount_real_ttc for Zoho
+      const rate = parseFloat(bill.amountRealTTC || bill.amountDisplayTTC).toFixed(2);
+      
+      // Tax fields: only if VAT applicable
+      const taxName = bill.vatApplicable ? "TVA" : "";
+      const taxPercentage = bill.vatApplicable ? "18" : "";
+      const isInclusiveTax = bill.vatApplicable ? "TRUE" : "";
+      const taxType = bill.vatApplicable ? "ItemAmount" : "";
+      
+      // Project Name
+      const projectName = bill.projectName || "";
+      
+      // Escape function for CSV values with commas
+      const escapeCSV = (val: string) => {
+        if (val && (val.includes(",") || val.includes('"') || val.includes("\n"))) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val || "";
+      };
+
+      return [
+        billDate,                             // Bill Date
+        escapeCSV(bill.invoiceNumber || ""),  // Bill Number
+        "",                                   // PurchaseOrder
+        "Open",                               // Bill Status
+        escapeCSV(bill.supplierName),         // Vendor Name
+        billDate,                             // Due Date (same as Bill Date)
+        "XOF",                                // Currency Code
+        "1",                                  // Exchange Rate
+        escapeCSV(account),                   // Account
+        escapeCSV(bill.description),          // Description
+        "1",                                  // Quantity
+        rate,                                 // Rate
+        taxName,                              // Tax Name
+        taxPercentage,                        // Tax Percentage
+        isInclusiveTax,                       // Is Inclusive Tax
+        taxType,                              // Tax Type
+        "",                                   // Vendor Notes
+        "",                                   // Terms & Conditions
+        "",                                   // Customer Name
+        escapeCSV(projectName),               // Project Name
+        "goods",                              // Item Type
+        "0",                                  // Adjustment
+        "",                                   // Purchase Order Number
+        "FALSE",                              // Is Discount Before Tax
+        "0",                                  // Entity Discount Amount
+        "",                                   // Discount Account
+        "FALSE",                              // Is Landed Cost
+        "",                                   // Warehouse Name
+        "",                                   // Branch Name
+      ].join(",");
+    });
+
+    return csvHeader + csvRows.join("\n");
+  }
+
+  // Admin export Zoho Bills CSV (protected) - Supplier Invoices only
+  app.get("/api/admin/export-zoho-bills", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const { user, date_start, date_end } = req.query;
+      
+      // Build WHERE conditions - supplier_invoice only (not expenses)
+      const conditions: any[] = [
+        eq(invoices.invoiceType, "supplier_invoice"),
+        isNull(invoices.archive),
+      ];
+      
+      // Filter by user if specified
+      if (user && user !== "all") {
+        const userName = String(user).charAt(0).toUpperCase() + String(user).slice(1).toLowerCase();
+        conditions.push(eq(invoices.userName, userName));
+      }
+      
+      // Filter by date range if specified
+      if (date_start) {
+        conditions.push(gte(invoices.invoiceDate, new Date(String(date_start))));
+      }
+      if (date_end) {
+        const endDate = new Date(String(date_end));
+        endDate.setHours(23, 59, 59, 999);
+        conditions.push(lte(invoices.invoiceDate, endDate));
+      }
+      
+      // Query with necessary joins (no payment_methods_mapping for Bills)
+      const result = await db
+        .select({
+          id: invoices.id,
+          userName: invoices.userName,
+          invoiceDate: invoices.invoiceDate,
+          supplierId: invoices.supplierId,
+          supplierName: suppliers.name,
+          amountDisplayTTC: invoices.amountDisplayTTC,
+          amountRealTTC: invoices.amountRealTTC,
+          vatApplicable: invoices.vatApplicable,
+          description: invoices.description,
+          invoiceNumber: invoices.invoiceNumber,
+          projectId: invoices.projectId,
+          projectName: projects.name,
+          categoryId: invoices.categoryId,
+          categoryAccountName: categories.accountName,
+        })
+        .from(invoices)
+        .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
+        .leftJoin(projects, eq(invoices.projectId, projects.id))
+        .leftJoin(categories, eq(invoices.categoryId, categories.id))
+        .where(and(...conditions))
+        .orderBy(asc(invoices.invoiceDate));
+      
+      // Generate filename
+      const userLabel = user === "all" ? "Toutes" : String(user).charAt(0).toUpperCase() + String(user).slice(1).toLowerCase();
+      const dateLabel = date_end ? format(new Date(String(date_end)), "yyyyMM") : format(new Date(), "yyyyMM");
+      const filename = `Factures_Fournisseurs_${userLabel}_${dateLabel}.csv`;
+      
+      // Generate CSV
+      const csv = generateZohoBillsCSV(result);
+      
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("X-Export-Count", result.length.toString());
+      res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
+    } catch (error) {
+      console.error("Error exporting Zoho Bills CSV:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Admin reset database (protected)
   app.post("/api/admin/reset-database", verifyAdminAuth, async (req: Request, res: Response) => {
     try {

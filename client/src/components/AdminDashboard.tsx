@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Archive, Lock, Database, Calendar } from "lucide-react";
+import { Download, Archive, Lock, Database, Calendar, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,13 +36,21 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
   const [isResetting, setIsResetting] = useState(false);
   const { toast } = useToast();
   
-  // Zoho export states
+  // Zoho export states (Expenses)
   const [zohoDateStart, setZohoDateStart] = useState<string>("");
   const [zohoDateEnd, setZohoDateEnd] = useState<string>("");
   const [isExportingZohoMichael, setIsExportingZohoMichael] = useState(false);
   const [isExportingZohoMarine, setIsExportingZohoMarine] = useState(false);
   const [isExportingZohoFatou, setIsExportingZohoFatou] = useState(false);
   const [isExportingZohoAll, setIsExportingZohoAll] = useState(false);
+  
+  // Zoho Bills export states (Factures Fournisseurs)
+  const [billsDateStart, setBillsDateStart] = useState<string>("");
+  const [billsDateEnd, setBillsDateEnd] = useState<string>("");
+  const [isExportingBillsMichael, setIsExportingBillsMichael] = useState(false);
+  const [isExportingBillsMarine, setIsExportingBillsMarine] = useState(false);
+  const [isExportingBillsFatou, setIsExportingBillsFatou] = useState(false);
+  const [isExportingBillsAll, setIsExportingBillsAll] = useState(false);
 
   const handleExportCSV = async () => {
     setIsExporting(true);
@@ -199,6 +207,68 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
       toast({
         title: "Erreur",
         description: "Impossible d'exporter les données Zoho",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Zoho Bills export handler (Factures Fournisseurs)
+  const handleExportBills = async (user: "michael" | "marine" | "fatou" | "all") => {
+    const setLoading = {
+      michael: setIsExportingBillsMichael,
+      marine: setIsExportingBillsMarine,
+      fatou: setIsExportingBillsFatou,
+      all: setIsExportingBillsAll,
+    }[user];
+    
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append("user", user);
+      if (billsDateStart) params.append("date_start", billsDateStart);
+      if (billsDateEnd) params.append("date_end", billsDateEnd);
+      
+      const response = await fetch(`/api/admin/export-zoho-bills?${params.toString()}`, {
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("adminSessionToken")}`,
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error("Export failed");
+      }
+      
+      const count = response.headers.get("X-Export-Count") || "0";
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      
+      const disposition = response.headers.get("Content-Disposition");
+      let filename = `Factures_Fournisseurs_${user}.csv`;
+      if (disposition) {
+        const match = disposition.match(/filename="(.+)"/);
+        if (match) filename = match[1];
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      
+      const userLabel = user === "all" ? "toutes" : user.charAt(0).toUpperCase() + user.slice(1);
+      toast({
+        title: "Export Zoho Bills réussi",
+        description: `${count} factures fournisseurs exportées pour ${userLabel}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'exporter les factures fournisseurs",
         variant: "destructive",
       });
     } finally {
@@ -386,6 +456,88 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
             >
               <Download className="h-5 w-5 mr-2" />
               {isExportingZohoAll ? "Export..." : "Toutes"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Zoho Bills Export - Factures Fournisseurs */}
+      <Card className="hover-elevate">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-indigo-500/10 p-3">
+              <FileText className="h-6 w-6 text-indigo-500" />
+            </div>
+            <div>
+              <CardTitle>Export Zoho Books - Factures Fournisseurs</CardTitle>
+              <CardDescription className="mt-1">
+                Exporter les factures fournisseurs au format Zoho Bills (uniquement les factures fournisseurs, pas les dépenses)
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="bills-date-start">Date de début</Label>
+              <Input
+                id="bills-date-start"
+                type="date"
+                value={billsDateStart}
+                onChange={(e) => setBillsDateStart(e.target.value)}
+                data-testid="input-bills-date-start"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bills-date-end">Date de fin</Label>
+              <Input
+                id="bills-date-end"
+                type="date"
+                value={billsDateEnd}
+                onChange={(e) => setBillsDateEnd(e.target.value)}
+                data-testid="input-bills-date-end"
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <Button
+              onClick={() => handleExportBills("michael")}
+              disabled={isExportingBillsMichael}
+              variant="secondary"
+              className="h-12"
+              data-testid="button-export-bills-michael"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingBillsMichael ? "Export..." : "FF Michael"}
+            </Button>
+            <Button
+              onClick={() => handleExportBills("marine")}
+              disabled={isExportingBillsMarine}
+              variant="secondary"
+              className="h-12"
+              data-testid="button-export-bills-marine"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingBillsMarine ? "Export..." : "FF Marine"}
+            </Button>
+            <Button
+              onClick={() => handleExportBills("fatou")}
+              disabled={isExportingBillsFatou}
+              variant="secondary"
+              className="h-12"
+              data-testid="button-export-bills-fatou"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingBillsFatou ? "Export..." : "FF Fatou"}
+            </Button>
+            <Button
+              onClick={() => handleExportBills("all")}
+              disabled={isExportingBillsAll}
+              className="h-12"
+              data-testid="button-export-bills-all"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingBillsAll ? "Export..." : "Toutes FF"}
             </Button>
           </div>
         </CardContent>

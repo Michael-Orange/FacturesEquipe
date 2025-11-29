@@ -1,0 +1,220 @@
+# EXPORT CSV FACTURES FOURNISSEURS POUR ZOHO BOOKS - VERSION FINALE
+
+## CONTEXTE
+Créer un export CSV pour les Factures Fournisseurs vers Zoho Books (Bills). Réutiliser la logique de l'export Dépenses existant en adaptant le format (29 colonnes au lieu de 27).
+
+## OBJECTIFS
+1. Nouvelle section "Exports Zoho - Factures Fournisseurs" dans console admin
+2. Export CSV format Zoho Bills (29 colonnes)
+3. 4 boutons d'export (Michael, Marine, Fatou, Toutes)
+4. Filtrage par période (réutiliser les date pickers existants)
+5. Même logique que export Dépenses, format Bills différent
+
+## TESTS UNIQUEMENT AVEC PROFIL MICHAEL
+⚠️ IMPORTANT : Tous les tests avec le compte Michael uniquement.
+
+## PLACEMENT INTERFACE
+
+Console Admin - Structure finale :
+┌─────────────────────────────────────┐
+│ 1. Exports Axonaut (existant)     │
+└─────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│ 2. Exports Zoho - Dépenses         │
+│    (existant)                      │
+└─────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│ 3. Exports Zoho - Factures         │
+│    Fournisseurs (NOUVEAU)          │
+│                                     │
+│ Filtres période (DD/MM/YYYY)       │
+│ [4 boutons export]                 │
+│                                     │
+│ ℹ️ Format Zoho Bills               │
+└─────────────────────────────────────┘
+
+## FORMAT ZOHO BILLS - 29 COLONNES
+
+### Headers CSV (ordre exact)
+Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name
+
+### Mapping colonnes (synthèse)
+
+| Colonne | Valeur | Notes |
+|---------|--------|-------|
+| Bill Date | `date` (YYYY-MM-DD) | Date facture |
+| Bill Number | `invoice_number` | Ex: FAC-2024-001 |
+| Bill Status | "Open" | Toujours |
+| Vendor Name | `suppliers.name` | Fournisseur |
+| Due Date | `date` | Même que Bill Date |
+| Currency Code | "XOF" | Fixe |
+| Exchange Rate | 1 | Fixe |
+| Account | `categories.account_name` | Compte comptable |
+| Description | `description` | Description facture |
+| Quantity | 1 | Fixe (1 ligne par facture) |
+| Rate | `amount_real_ttc` | Montant TTC réel |
+| Tax Name | "TVA" si `vat_applicable`, vide sinon | Conditionnel |
+| Tax Percentage | 18 si `vat_applicable`, vide sinon | Conditionnel |
+| Is Inclusive Tax | TRUE si `vat_applicable`, vide sinon | Conditionnel |
+| Tax Type | "ItemAmount" si `vat_applicable`, vide sinon | Conditionnel |
+| Project Name | `projects.name` | Nom projet |
+| Item Type | "goods" | Fixe |
+| Adjustment | 0 | Fixe |
+| Is Discount Before Tax | FALSE | Fixe |
+| Entity Discount Amount | 0 | Fixe |
+| Is Landed Cost | FALSE | Fixe |
+| **Autres colonnes** | Vide | Vendor Notes, Terms, Customer Name, PO Number, Discount Account, Warehouse, Branch |
+
+**DIFFÉRENCE CLÉ avec Expenses :** Pas de colonne "Paid Through" (mode paiement non exporté pour Bills).
+
+## BACKEND - ROUTE EXPORT
+
+### Route GET /api/admin/export-zoho-bills
+
+**Query params :**
+- `user` : 'michael' | 'marine' | 'fatou' | 'all'
+- `date_start` : YYYY-MM-DD (optionnel)
+- `date_end` : YYYY-MM-DD (optionnel)
+
+**Exemple :**
+GET /api/admin/export-zoho-bills?user=michael&date_start=2024-11-01&date_end=2024-11-30
+
+**Cohérence avec export Dépenses existant :**
+- `/api/admin/export-zoho-expenses` (existant)
+- `/api/admin/export-zoho-bills` (nouveau)
+
+### Logique backend
+
+**Réutiliser la structure de l'export Dépenses** en adaptant :
+
+**Requête SQL :**
+SELECT ...
+FROM invoices
+JOIN categories ON category_id = categories.id
+JOIN suppliers ON supplier_id = suppliers.id
+JOIN projects ON project_id = projects.id
+WHERE invoice_type = 'supplier_invoice'
+[+ filtres user et dates]
+ORDER BY date ASC
+
+**Note :** Pas de LEFT JOIN payment_methods_mapping (pas utilisé pour Bills).
+
+**Mapping vers 29 colonnes Zoho Bills** (au lieu de 27 colonnes Expenses).
+
+**Nom fichier :**
+- `Factures_Fournisseurs_Michael_YYYYMM.csv`
+
+**Réutiliser :**
+- Logique filtrage (user + dates)
+- Logique TVA conditionnelle (Tax Name, Tax Percentage, Is Inclusive Tax, Tax Type)
+- Génération CSV (UTF-8 BOM, séparateur virgule)
+- Headers HTTP (Content-Disposition)
+
+## RÈGLES DE FILTRAGE
+
+**Critère base :**
+WHERE invoice_type = 'supplier_invoice'
+
+**Filtrage user :**
+- Michael → `user_id = [ID Michael]`
+- Marine → `user_id = [ID Marine]`
+- Fatou → `user_id = [ID Fatou]`
+- Toutes → tous users
+
+**Filtrage dates :**
+- Si date_start → `date >= date_start`
+- Si date_end → `date <= date_end`
+- Si vides → toutes les factures
+
+**Tri :** `ORDER BY date ASC`
+
+## INTERFACE FRONTEND
+
+**Composants :**
+
+Titre : "Exports Factures Fournisseurs vers Zoho Books (Bills)"
+
+**Filtres :**
+- 2 date pickers (réutiliser existants)
+- Format DD/MM/YYYY géré automatiquement
+
+**4 boutons :**
+- "Export FF Michael"
+- "Export FF Marine"
+- "Export FF Fatou"
+- "Export Toutes FF"
+
+**Message info :**
+ℹ️ Format compatible Zoho Bills. Inclut uniquement les Factures Fournisseurs.
+
+**Comportement clic :**
+1. Récupérer dates + user
+2. Appeler `/api/admin/export-zoho-bills?user=...&date_start=...&date_end=...`
+3. Télécharger CSV
+4. Message succès ou erreur
+
+**Réutiliser le code de l'export Dépenses** en adaptant :
+- Route API (bills au lieu de expenses)
+- Message (Factures Fournisseurs au lieu de Dépenses)
+
+## TESTS (PROFIL MICHAEL UNIQUEMENT)
+
+### Test 1 : Interface visible
+1. Console admin
+2. Section "Exports Zoho - Factures Fournisseurs" présente
+3. 2 date pickers + 4 boutons visibles
+
+### Test 2 : Export FF Michael
+1. Période : 01/11/2024 au 30/11/2024
+2. Cliquer "Export FF Michael"
+3. Télécharger CSV
+4. Ouvrir Excel → 29 colonnes
+5. Uniquement Factures Fournisseurs Michael
+
+### Test 3 : Vérifier format
+1. Bill Status = "Open"
+2. Quantity = 1
+3. Rate = amount_real_ttc
+4. Item Type = "goods"
+5. Colonnes fixes OK
+
+### Test 4 : Vérifier TVA
+1. Facture AVEC TVA :
+   - Tax Name = "TVA", Tax % = 18, Inclusive = TRUE, Type = "ItemAmount"
+2. Facture SANS TVA :
+   - 4 colonnes vides
+
+### Test 5 : Vérifier Bill Number
+1. Numéros factures manuels (FAC-2024-001, etc.)
+2. Pas de numéros DEP
+
+### Test 6 : Import Zoho
+1. Exporter CSV
+2. Zoho Books → Bills → Import
+3. Vérifier import réussi
+
+### Test 7 : Coexistence
+1. Exports Axonaut OK
+2. Exports Zoho Dépenses OK
+3. Exports Zoho FF OK
+4. Pas de conflit
+
+## POINTS D'ATTENTION
+
+1. **Route cohérente** : `/api/admin/export-zoho-bills` (pas /api/exports/zoho/bills)
+2. **29 colonnes** : Pas 27 comme Dépenses
+3. **Quantity = 1** : Une ligne par facture
+4. **Pas de Paid Through** : Différence avec Expenses
+5. **Réutiliser code Dépenses** : Adapter mapping et format
+6. **Tests Michael uniquement** : Pas Marine/Fatou
+7. **Format dates frontend** : DD/MM/YYYY déjà géré
+
+## RÉSULTAT ATTENDU
+
+- ✅ Section "Exports Zoho FF" dans console admin
+- ✅ 4 boutons export fonctionnels
+- ✅ Route /api/admin/export-zoho-bills opérationnelle
+- ✅ CSV format Zoho Bills (29 colonnes)
+- ✅ Logique réutilisée de l'export Dépenses
+- ✅ Import Zoho réussi
+- ✅ 3 systèmes export coexistent
