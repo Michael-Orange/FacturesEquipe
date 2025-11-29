@@ -244,15 +244,15 @@ export function InvoiceForm({
       return;
     }
 
-    const accountName = selectedCategory.accountName;
+    const appName = selectedCategory.appName;
     
-    const brsCategoryNames = [
-      "Achats d'études et prestations de services",
-      "Transports sur ventes",
-      "Autres entretiens et réparations"
+    const brsAppNames = [
+      "Prestation de services",
+      "Transports (ex. camions)",
+      "Frais de maintenance (service)"
     ];
     
-    const isBRS = !vatApplicable && brsCategoryNames.includes(accountName);
+    const isBRS = !vatApplicable && brsAppNames.includes(appName);
     setIsBRSApplicable(isBRS);
     form.setValue("hasBrs", isBRS);
 
@@ -504,19 +504,27 @@ export function InvoiceForm({
             <SelectValue placeholder="Sélectionner une catégorie..." />
           </SelectTrigger>
           <SelectContent>
-            {[...categories].sort((a, b) => {
-              if (a.accountCode === '6021000000') return -1;
-              if (b.accountCode === '6021000000') return 1;
-              const aIsPrestation = a.accountName?.includes("prestations de services");
-              const bIsPrestation = b.accountName?.includes("prestations de services");
-              if (aIsPrestation) return -1;
-              if (bIsPrestation) return 1;
-              return a.appName.localeCompare(b.appName);
-            }).map((cat) => (
-              <SelectItem key={cat.id} value={cat.id.toString()} data-testid={`option-category-${cat.id}`}>
-                {cat.appName}
-              </SelectItem>
-            ))}
+            {[...categories]
+              .filter((cat) => {
+                if (cat.accountCode === '3210000000' && !isStockPurchase) {
+                  return false;
+                }
+                return true;
+              })
+              .sort((a, b) => {
+                if (a.accountCode === '6021000000') return -1;
+                if (b.accountCode === '6021000000') return 1;
+                const aIsPrestation = a.accountName?.includes("prestations de services");
+                const bIsPrestation = b.accountName?.includes("prestations de services");
+                if (aIsPrestation) return -1;
+                if (bIsPrestation) return 1;
+                return a.appName.localeCompare(b.appName);
+              })
+              .map((cat) => (
+                <SelectItem key={cat.id} value={cat.id.toString()} data-testid={`option-category-${cat.id}`}>
+                  {cat.appName}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
         {form.formState.errors.categoryId && (
