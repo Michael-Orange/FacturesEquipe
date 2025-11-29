@@ -47,6 +47,13 @@ Preferred communication style: Simple, everyday language.
       - No manual toggle - purely automatic based on category + TVA combination
     - `invoiceType` radios - "Dépense" or "Facture Fournisseur"
     - `invoiceNumber` input - required only for Facture Fournisseur type
+    - **Phase 4 Automatic Expense Numbering (Nov 2025):**
+      - Expense type invoices get auto-generated numbers in format: DEP-{initials}-{YYMM}-{sequence}
+      - Initials: Michael→MI, Marine→MA, Fatou→FA
+      - Example: DEP-MI-2511-001 (Michael's first expense in Nov 2025)
+      - Sequence resets per user/month
+      - Invoice number field hidden for expenses in creation form
+      - Invoice number shown as read-only in edit mode for expenses
     - Calculated readonly fields: `amountHT` (TTC/1.18), `amountRealTTC` (with BRS: TTC/0.95)
   - **6 useEffects for Conditional Logic:**
     1. Stock purchase → Force category to stock
@@ -83,6 +90,11 @@ Preferred communication style: Simple, everyday language.
     - Same validation logic as InvoiceForm
     - BRS auto-detection, invoice type forcing
     - Optional file replacement
+    - **Phase 4 Type Change Handling (Nov 2025):**
+      - Expense numbers (DEP-XX-YYMM-NNN) displayed as read-only disabled input
+      - Type change expense→supplier: clears DEP number, requires new manual number
+      - Type change supplier→expense: backend generates new DEP number
+      - Warning messages displayed for type changes with clear instructions
 - `AdminDashboard`: Administrative interface for data export and database management
 
 ### Backend Architecture
