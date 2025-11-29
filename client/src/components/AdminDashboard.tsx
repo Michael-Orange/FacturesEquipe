@@ -51,6 +51,11 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
   const [isExportingBillsMarine, setIsExportingBillsMarine] = useState(false);
   const [isExportingBillsFatou, setIsExportingBillsFatou] = useState(false);
   const [isExportingBillsAll, setIsExportingBillsAll] = useState(false);
+  
+  // New BRS Suppliers export states
+  const [brsDateStart, setBrsDateStart] = useState<string>("");
+  const [brsDateEnd, setBrsDateEnd] = useState<string>("");
+  const [isExportingBrsSuppliers, setIsExportingBrsSuppliers] = useState(false);
 
   const handleExportCSV = async () => {
     setIsExporting(true);
@@ -273,6 +278,112 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // New BRS Suppliers export handler
+  const handleExportBrsSuppliers = async () => {
+    // Frontend validation
+    if (!brsDateStart) {
+      toast({
+        title: "Date de début obligatoire",
+        description: "Veuillez saisir une date de début",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!brsDateEnd) {
+      toast({
+        title: "Date de fin obligatoire", 
+        description: "Veuillez saisir une date de fin",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (new Date(brsDateStart) > new Date(brsDateEnd)) {
+      toast({
+        title: "Dates invalides",
+        description: "Date de début doit être avant date de fin",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setIsExportingBrsSuppliers(true);
+    try {
+      const params = new URLSearchParams();
+      params.append("date_start", brsDateStart);
+      params.append("date_end", brsDateEnd);
+      
+      const response = await fetch(`/api/admin/export-nouveaux-fournisseurs-brs?${params.toString()}`, {
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("adminSessionToken")}`,
+        },
+      });
+      
+      const contentType = response.headers.get("Content-Type") || "";
+      
+      // Handle JSON responses (either errors or no-results message)
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        
+        // Handle successful "no results" response
+        if (response.ok && data.count === 0) {
+          toast({
+            title: "Aucun résultat",
+            description: data.message || "Aucun nouveau fournisseur BRS trouvé pour cette période",
+          });
+          return;
+        }
+        
+        // Handle error responses
+        if (!response.ok) {
+          throw new Error(data.message || "Export failed");
+        }
+        return; // JSON response fully handled
+      }
+      
+      // Handle CSV response
+      if (!response.ok) {
+        throw new Error("Export failed");
+      }
+      
+      const count = response.headers.get("X-Export-Count") || "0";
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      
+      const disposition = response.headers.get("Content-Disposition");
+      // Generate fallback filename with YYYYMM from brsDateEnd
+      const dateEnd = new Date(brsDateEnd);
+      const yyyymm = `${dateEnd.getFullYear()}${String(dateEnd.getMonth() + 1).padStart(2, "0")}`;
+      let filename = `Nouveaux_Fournisseurs_BRS_${yyyymm}.csv`;
+      if (disposition) {
+        const match = disposition.match(/filename="(.+)"/);
+        if (match) filename = match[1];
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Export généré",
+        description: `${count} fournisseurs listés`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Impossible d'exporter les données";
+      toast({
+        title: "Erreur",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingBrsSuppliers(false);
     }
   };
 
@@ -539,6 +650,56 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
               <Download className="h-5 w-5 mr-2" />
               {isExportingBillsAll ? "Export..." : "Toutes FF"}
             </Button>
+          </div>
+          
+          {/* Separator */}
+          <div className="border-t my-4" />
+          
+          {/* New BRS Suppliers Report */}
+          <div className="space-y-4">
+            <h3 className="font-semibold text-md">Rapport Nouveaux Fournisseurs BRS</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="brs-date-start" className="flex items-center gap-1">
+                  Du <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="brs-date-start"
+                  type="date"
+                  value={brsDateStart}
+                  onChange={(e) => setBrsDateStart(e.target.value)}
+                  data-testid="input-brs-date-start"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="brs-date-end" className="flex items-center gap-1">
+                  Au <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="brs-date-end"
+                  type="date"
+                  value={brsDateEnd}
+                  onChange={(e) => setBrsDateEnd(e.target.value)}
+                  data-testid="input-brs-date-end"
+                  required
+                />
+              </div>
+            </div>
+            <Button
+              onClick={handleExportBrsSuppliers}
+              disabled={isExportingBrsSuppliers}
+              variant="secondary"
+              className="w-full h-12"
+              data-testid="button-export-brs-suppliers"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingBrsSuppliers ? "Export en cours..." : "Export Nouveaux Fournisseurs BRS"}
+            </Button>
+            <p className="text-sm text-muted-foreground flex items-start gap-2">
+              <span className="text-primary">ℹ️</span>
+              Liste les fournisseurs créés pendant la période avec factures BRS (Retenue à la source 5%)
+            </p>
           </div>
         </CardContent>
       </Card>

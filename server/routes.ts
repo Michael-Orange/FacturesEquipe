@@ -8,7 +8,7 @@ import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
 import { insertInvoiceSchema, insertSupplierSchema, invoices, InvoiceWithDetails, paymentMethodsMapping, categories, suppliers, projects } from "@shared/schema";
-import { isNull, eq, and, gte, lte, desc, asc } from "drizzle-orm";
+import { isNull, eq, and, gte, lte, desc, asc, count, sql } from "drizzle-orm";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { generateFileName } from "./utils";
@@ -1273,6 +1273,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
     } catch (error) {
       console.error("Error exporting Zoho Bills CSV:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Export new BRS suppliers - suppliers created during period with BRS invoices
+  app.get("/api/admin/export-nouveaux-fournisseurs-brs", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const { date_start, date_end } = req.query;
+      
+      // Validate required dates
+      if (!date_start || !date_end) {
+        return res.status(400).json({ message: "Les dates de début et fin sont obligatoires" });
+      }
+      
+      const startDate = new Date(String(date_start));
+      const endDate = new Date(String(date_end));
+      endDate.setHours(23, 59, 59, 999);
+      
+      // Validate date order
+      if (startDate > endDate) {
+        return res.status(400).json({ message: "Date de début doit être avant date de fin" });
+      }
+      
+      // Query: suppliers created during period with BRS supplier invoices
+      // JOIN suppliers with invoices, filter by:
+      // - suppliers.created_at >= date_start (created during or after start of period)
+      // - invoices.invoice_type = 'supplier_invoice'
+      // - invoices.has_brs = true
+      // - invoices.invoice_date between date_start and date_end
+      // - NOT archived
+      const result = await db
+        .select({
+          supplierName: suppliers.name,
+          supplierCreatedAt: suppliers.createdAt,
+          brsInvoiceCount: count(invoices.id),
+        })
+        .from(suppliers)
+        .innerJoin(invoices, eq(invoices.supplierId, suppliers.id))
+        .where(
+          and(
+            gte(suppliers.createdAt, startDate),
+            eq(invoices.invoiceType, "supplier_invoice"),
+            eq(invoices.hasBrs, true),
+            gte(invoices.invoiceDate, startDate),
+            lte(invoices.invoiceDate, endDate),
+            isNull(invoices.archive)
+          )
+        )
+        .groupBy(suppliers.id, suppliers.name, suppliers.createdAt)
+        .orderBy(asc(suppliers.createdAt));
+      
+      // If no suppliers found
+      if (result.length === 0) {
+        return res.status(200).json({ 
+          message: "Aucun nouveau fournisseur BRS trouvé pour cette période",
+          count: 0
+        });
+      }
+      
+      // Helper to escape CSV values
+      const escapeCSV = (val: string) => {
+        if (!val) return "";
+        if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      };
+      
+      // Generate CSV with 3 columns: Nom Fournisseur, Date Création, Nombre Factures BRS
+      // Use comma separator per spec
+      const csvHeader = "Nom Fournisseur,Date Création,Nombre Factures BRS\n";
+      const csvRows = result.map(row => {
+        const supplierName = escapeCSV(row.supplierName || "");
+        const createdDate = row.supplierCreatedAt ? format(new Date(row.supplierCreatedAt), "dd/MM/yyyy") : "";
+        const invoiceCount = String(row.brsInvoiceCount);
+        return `${supplierName},${createdDate},${invoiceCount}`;
+      }).join("\n");
+      
+      const csv = csvHeader + csvRows;
+      
+      // Filename: Nouveaux_Fournisseurs_BRS_YYYYMM.csv (based on end date)
+      const dateLabel = format(endDate, "yyyyMM");
+      const filename = `Nouveaux_Fournisseurs_BRS_${dateLabel}.csv`;
+      
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("X-Export-Count", result.length.toString());
+      res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
+    } catch (error) {
+      console.error("Error exporting new BRS suppliers:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
