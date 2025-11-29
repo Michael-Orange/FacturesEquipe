@@ -1,0 +1,315 @@
+# FORMULAIRE FACTURES - PHASE 3 : AFFICHAGE ET VISUALISATION
+
+## NOTE POUR REPLIT
+Phases 1 et 2 terminées avec succès. Cette phase se concentre sur l'affichage de la liste des factures et la visualisation/édition des factures avec les nouveaux champs. NE PAS TOUCHER AUX EXPORTS CSV (phase ultérieure).
+
+## CONTEXTE
+Les utilisateurs peuvent maintenant soumettre des factures avec la nouvelle structure (14 champs). Il faut adapter l'interface d'affichage pour montrer ces nouvelles informations de manière claire et permettre la consultation/édition des factures.
+
+## OBJECTIFS PHASE 3
+1. Adapter la liste/tableau des factures pour afficher les nouveaux champs
+2. Créer/adapter la vue détail d'une facture
+3. Gérer l'affichage des anciennes factures (rétrocompatibilité)
+4. Permettre l'édition des factures avec la nouvelle structure
+5. Tests finaux E2E avec le profil Michael UNIQUEMENT
+6. NE PAS TOUCHER AUX EXPORTS CSV (à faire plus tard)
+
+## TESTS UNIQUEMENT AVEC LE PROFIL MICHAEL
+⚠️ IMPORTANT : Tous les tests de cette phase doivent être effectués UNIQUEMENT avec le compte Michael. Ne pas utiliser les comptes Marine ni Fatou pour éviter de créer des données incohérentes pendant le développement.
+
+## PARTIE 1 : LISTE DES FACTURES (Tableau/Cards)
+
+### Colonnes/Informations à afficher
+
+**Affichage existant à conserver :**
+- Date
+- Fournisseur
+- Projet
+- Description (tronquée si longue)
+- Montant
+- Photo (icône/lien)
+- Actions (voir, modifier, supprimer)
+
+**NOUVELLES colonnes à ajouter :**
+
+1. **Type de facture** (nouveau)
+   - Badge visuel : 
+     - "Dépense" → badge bleu
+     - "Facture Fournisseur" → badge vert
+   - Si invoice_type IS NULL (anciennes factures) → ne pas afficher de badge
+
+2. **N° facture** (nouveau)
+   - Afficher si invoice_type = 'supplier_invoice'
+   - Format : petit texte gris sous le fournisseur
+   - Si NULL → ne rien afficher
+
+3. **Catégorie** (modifié)
+   - Afficher app_name depuis la table categories
+   - Si category_id IS NULL (anciennes factures) → afficher l'ancien champ category (texte libre)
+   - Si les deux sont NULL → afficher "Non définie"
+
+4. **Montant HT** (nouveau - conditionnel)
+   - Afficher uniquement si vat_applicable = true ET amount_ht IS NOT NULL
+   - Format : "HT: XXX FCFA" en petit sous le montant TTC
+   - Si NULL ou vat_applicable = false → ne pas afficher
+
+5. **BRS** (nouveau - indicateur)
+   - Afficher une petite étiquette "BRS 5%" si has_brs = true
+   - Couleur neutre (gris/bleu)
+   - Si false ou NULL → ne pas afficher
+
+6. **Stock** (nouveau - indicateur)
+   - Afficher une petite icône 📦 si is_stock_purchase = true
+   - Avec tooltip "Achat pour le stock"
+   - Si false ou NULL → ne pas afficher
+
+### Adaptation responsive mobile
+
+**Vue mobile (< 768px) :**
+Afficher en cards au lieu de tableau, avec :
+- Ligne 1 : Date + Badge Type
+- Ligne 2 : Fournisseur + N° facture (si existe)
+- Ligne 3 : Catégorie + Icônes (BRS, Stock)
+- Ligne 4 : Montant TTC + Montant HT (si TVA)
+- Ligne 5 : Description tronquée
+- Ligne 6 : Actions
+
+**Vue desktop :**
+Tableau avec toutes les colonnes.
+
+### Tri et filtres (optionnel - si facile)
+
+Permettre de :
+- Trier par date (défaut : plus récent d'abord)
+- Filtrer par Type de facture (Tous / Dépense / Facture Fournisseur)
+- Filtrer par Catégorie (dropdown avec les 14 catégories)
+
+Si trop complexe, laisser pour plus tard.
+
+## PARTIE 2 : VUE DÉTAIL D'UNE FACTURE
+
+### Affichage en lecture seule
+
+Quand l'utilisateur clique sur "Voir", afficher une modale ou page avec TOUTES les informations :
+
+**Section 1 : Informations générales**
+- Date
+- Fournisseur (nom complet)
+- Projet (nom complet)
+- Description complète
+
+**Section 2 : Informations financières**
+- Type de facture (badge)
+- N° facture (si Facture Fournisseur)
+- Catégorie (app_name + account_name entre parenthèses)
+- Montant TTC à régler
+- Montant HT (si TVA applicable)
+- TVA applicable (Oui/Non)
+- BRS applicable (Oui/Non) - si Oui, afficher calcul "Retenue BRS : X FCFA sur Y FCFA"
+- Achat pour le stock (Oui/Non)
+- Type de règlement
+- Photo de la facture (affichage grand format)
+
+**Gestion rétrocompatibilité :**
+- Si invoice_type IS NULL → ne pas afficher "Type de facture"
+- Si category_id IS NULL → afficher "Catégorie : [ancien champ category]"
+- Si amount_ht IS NULL → ne pas afficher ligne Montant HT
+- Afficher uniquement les champs qui ont des valeurs
+
+**Boutons d'action :**
+- Modifier (ouvre formulaire édition)
+- Supprimer (avec confirmation)
+- Fermer
+
+## PARTIE 3 : ÉDITION D'UNE FACTURE
+
+### Comportement attendu
+
+Quand l'utilisateur clique sur "Modifier" :
+
+**Pour les NOUVELLES factures (avec category_id NOT NULL) :**
+- Ouvrir le formulaire complet avec les 14 champs
+- Pré-remplir tous les champs avec les valeurs existantes
+- Permettre la modification de tous les champs
+- Appliquer la même logique conditionnelle que lors de la création
+- Validation backend identique
+
+**Pour les ANCIENNES factures (category_id IS NULL) :**
+Deux options au choix :
+
+**Option A (plus simple) :**
+- Afficher un message : "Cette facture utilise l'ancien format. Modifiez-la depuis l'interface standard."
+- Rediriger vers l'ancien formulaire d'édition (si existe)
+
+**Option B (plus complexe) :**
+- Permettre l'édition mais forcer la migration vers le nouveau format
+- Afficher un message : "⚠️ Cette facture sera mise à jour vers le nouveau format lors de la sauvegarde"
+- Forcer à sélectionner une catégorie depuis les 14 disponibles
+- Compléter les champs manquants (Type de facture, etc.)
+
+Choisir l'option la plus simple pour cette phase. On peut améliorer plus tard.
+
+### Route backend à adapter
+
+**PUT /api/invoices/:id (si existe) ou PATCH /api/invoices/:id**
+
+Permettre la modification avec les mêmes validations que POST /api/invoices :
+- Toutes les validations de la Phase 1
+- Recalculer amount_ht et amount_real_ttc
+- Vérifier les règles de forcing
+
+## PARTIE 4 : GESTION RÉTROCOMPATIBILITÉ
+
+### Requête GET /api/invoices (déjà adaptée en Phase 1)
+
+Vérifier que la jointure categories fonctionne bien et retourne :
+- display_category : category_app_name OU category (ancien champ) OU "Non définie"
+- Tous les nouveaux champs avec valeurs NULL pour les anciennes factures
+
+### Affichage frontend
+
+**Anciennes factures (category_id IS NULL) :**
+- ✅ Doivent s'afficher sans erreur
+- ✅ Montrer les informations disponibles (date, fournisseur, montant, description, photo)
+- ✅ Ne pas afficher les badges/indicateurs des nouveaux champs
+- ✅ Afficher l'ancienne catégorie (texte libre) si disponible
+
+**Nouvelles factures :**
+- ✅ Afficher tous les nouveaux champs
+- ✅ Badges visuels clairs
+- ✅ Indicateurs BRS et Stock si applicable
+
+### Messages d'information
+
+Si besoin, afficher un message en haut de la liste :
+"ℹ️ Les factures soumises avant [date] utilisent l'ancien format et peuvent avoir moins d'informations."
+
+## PARTIE 5 : STYLING ET UX
+
+### Badges Type de facture
+
+**Dépense :**
+Fond : bleu clair (#e3f2fd)
+Texte : bleu foncé (#1565c0)
+Bordure : bleu (#1976d2)
+Taille : petit (padding 4px 8px)
+
+**Facture Fournisseur :**
+Fond : vert clair (#e8f5e9)
+Texte : vert foncé (#2e7d32)
+Bordure : vert (#4caf50)
+Taille : petit (padding 4px 8px)
+
+### Indicateur BRS
+Fond : gris clair (#f5f5f5)
+Texte : gris foncé (#616161)
+Bordure : gris (#90a4ae)
+Texte : "BRS 5%"
+Taille : mini (padding 2px 6px)
+
+### Icône Stock
+Emoji : 📦
+Taille : 16px
+Tooltip : "Achat pour le stock"
+
+### Vue détail
+
+Style modale ou page pleine écran au choix.
+Sections bien séparées visuellement.
+Labels en gras, valeurs en texte normal.
+Photo en grand format avec possibilité de zoom.
+
+## PARTIE 6 : TESTS E2E (PROFIL MICHAEL UNIQUEMENT)
+
+### Test 1 : Affichage liste mixte
+1. Se connecter en tant que Michael
+2. Aller sur la page liste factures
+3. Vérifier affichage des anciennes factures (sans badges nouveaux champs)
+4. Vérifier affichage des nouvelles factures (avec badges Type, N° facture, BRS, Stock)
+5. Vérifier que les 2 types s'affichent sans erreur
+
+### Test 2 : Vue détail nouvelle facture
+1. Cliquer sur "Voir" d'une nouvelle facture (soumise en Phase 2)
+2. Vérifier tous les champs affichés correctement
+3. Vérifier badge Type de facture
+4. Vérifier calcul BRS affiché si applicable
+5. Vérifier photo affichée
+
+### Test 3 : Vue détail ancienne facture
+1. Cliquer sur "Voir" d'une ancienne facture (avant Phase 2)
+2. Vérifier affichage sans erreur
+3. Vérifier que seuls les champs disponibles sont affichés
+4. Vérifier pas de badge Type ni indicateurs nouveaux
+
+### Test 4 : Édition nouvelle facture
+1. Modifier une nouvelle facture
+2. Changer catégorie → vérifier logique conditionnelle fonctionne
+3. Changer montant à >500k → vérifier Type forcé "Facture Fournisseur"
+4. Sauvegarder → vérifier modifications enregistrées
+5. Revoir la facture → vérifier nouvelles valeurs affichées
+
+### Test 5 : Édition ancienne facture (Option A)
+1. Tenter de modifier une ancienne facture
+2. Vérifier message "ancien format" affiché
+3. Ou vérifier redirection vers ancien formulaire
+
+### Test 6 : Responsive mobile
+1. Afficher liste sur mobile (< 768px)
+2. Vérifier affichage en cards
+3. Vérifier lisibilité de toutes les infos
+4. Vérifier actions accessibles
+
+### Test 7 : Filtres (si implémentés)
+1. Filtrer par Type "Dépense" → vérifier seules les dépenses affichées
+2. Filtrer par Type "Facture Fournisseur" → vérifier seules les FF affichées
+3. Filtrer par catégorie "Prestation de services" → vérifier résultats corrects
+
+### Test 8 : Tri
+1. Trier par date décroissante (défaut) → vérifier ordre correct
+2. Trier par date croissante → vérifier ordre inversé
+
+### Test 9 : Suppression (avec précaution)
+1. Supprimer une facture de test (créée exprès)
+2. Vérifier message de confirmation
+3. Confirmer → vérifier facture disparue de la liste
+4. Vérifier pas d'erreur
+
+### Test 10 : Performance
+1. Charger la page avec ~30+ factures
+2. Vérifier temps de chargement acceptable (< 2s)
+3. Vérifier pas de lag lors du scroll
+4. Vérifier jointures SQL optimisées
+
+## POINTS D'ATTENTION
+
+1. **Rétrocompatibilité absolue** - Ne jamais casser l'affichage des 25 anciennes factures
+
+2. **Performances** - Optimiser les requêtes SQL avec jointures categories + suppliers
+
+3. **UX mobile** - Privilégier la lisibilité sur petit écran
+
+4. **Messages clairs** - Si ancienne facture, expliquer pourquoi certaines infos manquent
+
+5. **Validation édition** - Appliquer les mêmes règles backend que création
+
+6. **Photos** - Vérifier que les liens Google Drive fonctionnent toujours
+
+7. **Tests profil Michael uniquement** - Ne pas polluer les comptes Marine/Fatou
+
+## NE PAS TOUCHER DANS CETTE PHASE
+
+- Exports CSV (à faire dans une phase ultérieure dédiée)
+- Interface admin fournisseurs (plus tard)
+- Statistiques/dashboards (plus tard)
+- Notifications (plus tard)
+
+## RÉSULTAT ATTENDU PHASE 3
+
+Une interface complète pour :
+- ✅ Visualiser la liste des factures avec nouveaux champs
+- ✅ Consulter le détail d'une facture (nouvelle ou ancienne)
+- ✅ Modifier les factures avec validation complète
+- ✅ Rétrocompatibilité parfaite avec anciennes factures
+- ✅ UX mobile optimisée
+- ✅ Tests E2E validés (profil Michael uniquement)
+- ✅ Prêt pour mise en production (hors exports CSV)

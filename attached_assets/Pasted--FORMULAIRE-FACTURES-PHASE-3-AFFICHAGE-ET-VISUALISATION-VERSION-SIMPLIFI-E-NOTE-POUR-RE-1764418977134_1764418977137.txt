@@ -1,0 +1,273 @@
+# FORMULAIRE FACTURES - PHASE 3 : AFFICHAGE ET VISUALISATION - VERSION SIMPLIFIÉE
+
+## NOTE POUR REPLIT
+Phases 1 et 2 terminées avec succès. Les anciennes factures (avant Phase 2) seront supprimées avant cette phase. Donc AUCUNE rétrocompatibilité nécessaire. Toutes les factures utilisent maintenant la nouvelle structure avec 14 champs. NE PAS TOUCHER AUX EXPORTS CSV.
+
+## CONTEXTE
+Toutes les factures en BDD utilisent la nouvelle structure (category_id, invoice_type, etc.). Il faut créer l'interface de visualisation et édition.
+
+## OBJECTIFS PHASE 3
+1. Liste des factures avec filtres et tri
+2. Vue détail en modale
+3. Édition via réutilisation du composant InvoiceForm
+4. Tests E2E avec profil Michael UNIQUEMENT
+5. NE PAS TOUCHER AUX EXPORTS CSV
+
+## TESTS UNIQUEMENT AVEC LE PROFIL MICHAEL
+⚠️ IMPORTANT : Tous les tests doivent être effectués UNIQUEMENT avec le compte Michael. Ne pas utiliser les comptes Marine ni Fatou.
+
+## PARTIE 1 : LISTE DES FACTURES
+
+### Colonnes à afficher
+
+**Colonnes de base :**
+- Date
+- Fournisseur
+- N° facture (si invoice_type = 'supplier_invoice')
+- Catégorie (app_name)
+- Projet
+- Description (tronquée à 50 caractères)
+- Montant TTC
+- Montant HT (si vat_applicable = true)
+- Actions (Voir, Modifier, Supprimer)
+
+**Badges et indicateurs :**
+- Badge Type : "Dépense" (bleu) ou "Facture Fournisseur" (vert)
+- Étiquette BRS : "BRS 5%" (gris) si has_brs = true
+- Icône Stock : 📦 si is_stock_purchase = true
+
+### Filtres
+
+Barre de filtres au-dessus du tableau :
+1. **Type de facture** : Dropdown "Tous" / "Dépense" / "Facture Fournisseur"
+2. **Catégorie** : Dropdown avec les 14 catégories + "Toutes"
+3. **Avec BRS uniquement** : Checkbox
+4. **Achats stock uniquement** : Checkbox
+
+### Tri
+
+Par défaut : date décroissante (plus récent d'abord)
+Permettre tri sur : Date, Fournisseur, Montant
+Direction : croissant/décroissant (icône flèche)
+
+### Backend : Route GET /api/invoices avec filtres
+
+Adapter la route pour accepter query params :
+- `type` : 'expense' | 'supplier_invoice' | 'all'
+- `category_id` : integer | 'all'
+- `has_brs` : boolean
+- `is_stock_purchase` : boolean
+- `sort_by` : 'date' | 'supplier' | 'amount'
+- `sort_order` : 'asc' | 'desc'
+
+Filtrer et trier côté serveur avec SQL WHERE et ORDER BY.
+
+### Responsive mobile
+
+**Vue mobile (< 768px) :**
+Cards avec :
+- Ligne 1 : Date + Badge Type
+- Ligne 2 : Fournisseur + N° facture (si existe)
+- Ligne 3 : Catégorie + Indicateurs (BRS, Stock)
+- Ligne 4 : Montant TTC + HT (si TVA)
+- Ligne 5 : Description tronquée
+- Ligne 6 : Boutons actions
+
+**Vue desktop :**
+Tableau avec toutes les colonnes.
+
+## PARTIE 2 : VUE DÉTAIL EN MODALE
+
+Quand l'utilisateur clique sur "Voir", ouvrir une modale avec :
+
+**Header :**
+- Titre : "Facture du [date]" + Badge Type
+- Bouton fermer (X)
+
+**Contenu (sections) :**
+
+**Section 1 : Informations générales**
+- Date
+- Fournisseur
+- N° facture (si Facture Fournisseur)
+- Projet
+- Description complète
+
+**Section 2 : Informations financières**
+- Catégorie (app_name + account_name entre parenthèses)
+- Montant TTC à régler
+- Montant HT (si vat_applicable = true)
+- Facture avec TVA (18%) : Oui/Non
+- BRS applicable : Oui/Non
+  - Si Oui → afficher "Retenue BRS : X FCFA sur Y FCFA" (calcul : 5% de amount_real_ttc)
+- Achat pour le stock : Oui/Non
+- Type de règlement
+
+**Section 3 : Justificatif**
+- Photo de la facture en grand format
+- Possibilité de zoom ou ouvrir dans nouvel onglet
+
+**Footer :**
+- Bouton "Modifier"
+- Bouton "Supprimer" (avec confirmation)
+- Bouton "Fermer"
+
+## PARTIE 3 : ÉDITION - RÉUTILISATION COMPOSANT
+
+### Stratégie
+
+Réutiliser le composant **InvoiceForm** créé en Phase 2 avec un prop `mode`.
+
+**Props à ajouter :**
+mode: 'create' | 'edit'
+invoiceData: object (si mode = 'edit')
+onSuccess: callback
+
+**Comportement en mode 'edit' :**
+1. Pré-remplir tous les 14 champs avec invoiceData
+2. Appliquer la même logique conditionnelle (7 useEffect)
+3. Changer endpoint : PUT /api/invoices/:id
+4. Validation backend identique à POST
+
+**Ouverture du formulaire édition :**
+Depuis la modale détail, cliquer "Modifier" → ouvrir InvoiceForm en mode 'edit' (peut être dans une nouvelle modale ou remplacer le contenu).
+
+### Backend : Route PUT /api/invoices/:id
+
+Créer ou adapter cette route avec :
+- Toutes les validations de POST /api/invoices (Phase 1)
+- Recalcul amount_ht et amount_real_ttc
+- Vérification règles de forcing
+- Retourner la facture mise à jour
+
+## PARTIE 4 : STYLING
+
+### Badges Type de facture
+
+**Dépense :**
+Fond : #e3f2fd
+Texte : #1565c0
+Bordure : #1976d2
+Padding : 4px 8px
+Border-radius : 4px
+
+**Facture Fournisseur :**
+Fond : #e8f5e9
+Texte : #2e7d32
+Bordure : #4caf50
+Padding : 4px 8px
+Border-radius : 4px
+
+### Indicateur BRS
+Fond : #f5f5f5
+Texte : #616161
+Bordure : #90a4ae
+Texte : "BRS 5%"
+Padding : 2px 6px
+Border-radius : 3px
+Font-size : 12px
+
+### Icône Stock
+Emoji : 📦
+Taille : 16px
+Tooltip : "Achat pour le stock"
+
+### Modale
+Largeur max : 800px
+Overlay : rgba(0,0,0,0.5)
+Animation : fade in 200ms
+Sections séparées : border-bottom 1px solid #e0e0e0
+Padding sections : 20px
+
+## PARTIE 5 : TESTS E2E (PROFIL MICHAEL UNIQUEMENT)
+
+### Test 1 : Liste + Filtres + Tri
+1. Se connecter en tant que Michael
+2. Charger la liste des factures → vérifier affichage complet
+3. Filtrer par Type "Dépense" → vérifier seules les dépenses affichées
+4. Filtrer par Catégorie "Prestation de services" → vérifier résultats
+5. Cocher "Avec BRS uniquement" → vérifier uniquement factures BRS
+6. Trier par montant décroissant → vérifier ordre correct
+7. Trier par date croissante → vérifier ordre inversé
+
+### Test 2 : Vue détail
+1. Cliquer "Voir" sur une facture
+2. Vérifier modale s'ouvre correctement
+3. Vérifier tous les champs affichés (date, fournisseur, catégorie, montants, etc.)
+4. Vérifier badge Type correct
+5. Si BRS = Oui → vérifier calcul "Retenue BRS : X sur Y" affiché
+6. Vérifier photo affichée en grand format
+7. Fermer modale → vérifier retour à la liste
+
+### Test 3 : Édition
+1. Depuis modale détail, cliquer "Modifier"
+2. Vérifier formulaire InvoiceForm s'ouvre en mode édition
+3. Vérifier tous les champs pré-remplis avec valeurs actuelles
+4. Modifier catégorie → vérifier logique conditionnelle fonctionne (forcing TVA, BRS, etc.)
+5. Modifier montant à >500k FCFA → vérifier Type forcé "Facture Fournisseur"
+6. Modifier montant à <500k FCFA → vérifier Type redevient choix libre
+7. Sauvegarder → vérifier message succès
+8. Retour liste → vérifier facture mise à jour affichée
+
+### Test 4 : Suppression
+1. Cliquer "Supprimer" sur une facture de test
+2. Vérifier message de confirmation "Êtes-vous sûr ?"
+3. Annuler → vérifier facture toujours présente
+4. Re-supprimer et confirmer → vérifier facture disparue de la liste
+5. Vérifier pas d'erreur console
+
+### Test 5 : Responsive mobile
+1. Réduire largeur écran à <768px
+2. Vérifier affichage en cards (pas tableau)
+3. Vérifier tous les éléments lisibles (date, badges, montants)
+4. Ouvrir modale détail → vérifier scroll vertical fonctionne
+5. Ouvrir formulaire édition → vérifier utilisable sur mobile
+
+### Test 6 : Performance
+1. Créer 30-40 factures de test (via script ou manuellement)
+2. Charger la liste → vérifier temps de chargement <2 secondes
+3. Appliquer plusieurs filtres → vérifier réactivité
+4. Trier plusieurs fois → vérifier pas de lag
+5. Ouvrir/fermer 10 modales → vérifier pas de ralentissement
+
+## POINTS D'ATTENTION
+
+1. **Réutilisation InvoiceForm** - Bien passer le prop `mode` et `invoiceData` pour pré-remplir
+
+2. **Filtres côté serveur** - Utiliser SQL WHERE clauses pour performance, pas filtrage frontend
+
+3. **Modale fluide** - Animation smooth, overlay cliquable pour fermer
+
+4. **Validation édition** - Exactement les mêmes règles que création (backend Phase 1)
+
+5. **Tests profil Michael** - Ne jamais tester avec Marine ou Fatou
+
+6. **Photos** - Vérifier que les liens Google Drive s'affichent correctement
+
+## NE PAS TOUCHER
+
+- Exports CSV (phase ultérieure)
+- Interface admin fournisseurs
+- Statistiques/dashboards
+- Notifications
+
+## RÉSULTAT ATTENDU PHASE 3
+
+- ✅ Liste factures avec filtres et tri opérationnels
+- ✅ Vue détail en modale complète et lisible
+- ✅ Édition fonctionnelle via InvoiceForm mode 'edit'
+- ✅ Suppression avec confirmation
+- ✅ UX mobile optimisée
+- ✅ Tests E2E validés (profil Michael uniquement)
+- ✅ Performance optimale (filtres serveur)
+- ✅ Prêt pour production (hors exports CSV)
+
+## ESTIMATION TEMPS
+
+- Partie 1 (Liste + Filtres) : ~1h30
+- Partie 2 (Modale détail) : ~45min
+- Partie 3 (Édition) : ~1h
+- Partie 4 (Styling) : inclus dans parties précédentes
+- Tests : ~45min
+
+**Total estimé : ~4h** (au lieu de 6h avec rétrocompatibilité)

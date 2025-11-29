@@ -20,7 +20,16 @@ import {
   type Category,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql, inArray, isNull, ne } from "drizzle-orm";
+import { eq, desc, sql, inArray, isNull, ne, asc, and } from "drizzle-orm";
+
+export interface InvoiceFilters {
+  type?: 'expense' | 'supplier_invoice' | 'all';
+  categoryId?: number | 'all';
+  hasBrs?: boolean;
+  isStockPurchase?: boolean;
+  sortBy?: 'date' | 'supplier' | 'amount';
+  sortOrder?: 'asc' | 'desc';
+}
 
 export interface IStorage {
   // User tokens
@@ -47,6 +56,7 @@ export interface IStorage {
 
   // Invoices
   getInvoicesByUser(userName: string): Promise<InvoiceWithDetails[]>;
+  getInvoicesByUserWithFilters(userName: string, filters: InvoiceFilters): Promise<InvoiceWithDetails[]>;
   getAllInvoices(): Promise<InvoiceWithDetails[]>;
   getAllInvoicesIncludingArchived(): Promise<InvoiceWithDetails[]>;
   getInvoiceById(id: string): Promise<Invoice | undefined>;
@@ -213,6 +223,90 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(invoices.createdAt));
 
     // Add backward compatibility display fields
+    return result.map(inv => ({
+      ...inv,
+      displayCategory: inv.categoryAppName || inv.category || 'Non définie',
+      displayAmount: inv.amountDisplayTTC,
+    })) as InvoiceWithDetails[];
+  }
+
+  async getInvoicesByUserWithFilters(userName: string, filters: InvoiceFilters): Promise<InvoiceWithDetails[]> {
+    const conditions: any[] = [
+      eq(invoices.userName, userName),
+      isNull(invoices.archive),
+    ];
+
+    if (filters.type && filters.type !== 'all') {
+      conditions.push(eq(invoices.invoiceType, filters.type));
+    }
+
+    if (filters.categoryId && filters.categoryId !== 'all') {
+      conditions.push(eq(invoices.categoryId, filters.categoryId));
+    }
+
+    if (filters.hasBrs === true) {
+      conditions.push(eq(invoices.hasBrs, true));
+    }
+
+    if (filters.isStockPurchase === true) {
+      conditions.push(eq(invoices.isStockPurchase, true));
+    }
+
+    let orderByClause;
+    const sortOrder = filters.sortOrder === 'asc' ? asc : desc;
+    
+    switch (filters.sortBy) {
+      case 'supplier':
+        orderByClause = sortOrder(suppliers.name);
+        break;
+      case 'amount':
+        orderByClause = sortOrder(invoices.amountDisplayTTC);
+        break;
+      case 'date':
+      default:
+        orderByClause = sortOrder(invoices.invoiceDate);
+        break;
+    }
+
+    const result = await db
+      .select({
+        id: invoices.id,
+        userName: invoices.userName,
+        invoiceDate: invoices.invoiceDate,
+        supplierId: invoices.supplierId,
+        supplierName: suppliers.name,
+        supplierIsRegular: suppliers.isRegularSupplier,
+        category: invoices.category,
+        amountDisplayTTC: invoices.amountDisplayTTC,
+        vatApplicable: invoices.vatApplicable,
+        amountHT: invoices.amountHT,
+        amountRealTTC: invoices.amountRealTTC,
+        description: invoices.description,
+        paymentType: invoices.paymentType,
+        projectId: invoices.projectId,
+        projectNumber: projects.number,
+        projectName: projects.name,
+        fileName: invoices.fileName,
+        filePath: invoices.filePath,
+        driveFileId: invoices.driveFileId,
+        archive: invoices.archive,
+        createdAt: invoices.createdAt,
+        invoiceType: invoices.invoiceType,
+        invoiceNumber: invoices.invoiceNumber,
+        isStockPurchase: invoices.isStockPurchase,
+        categoryId: invoices.categoryId,
+        hasBrs: invoices.hasBrs,
+        categoryAppName: categories.appName,
+        categoryAccountName: categories.accountName,
+        categoryAccountCode: categories.accountCode,
+      })
+      .from(invoices)
+      .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
+      .leftJoin(projects, eq(invoices.projectId, projects.id))
+      .leftJoin(categories, eq(invoices.categoryId, categories.id))
+      .where(and(...conditions))
+      .orderBy(orderByClause);
+
     return result.map(inv => ({
       ...inv,
       displayCategory: inv.categoryAppName || inv.category || 'Non définie',

@@ -114,11 +114,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get invoices for a user
+  // Get invoices for a user with optional filters
   app.get("/api/invoices/:userName", async (req: Request, res: Response) => {
     try {
       const { userName } = req.params;
-      const invoices = await storage.getInvoicesByUser(userName);
+      const { type, category_id, has_brs, is_stock_purchase, sort_by, sort_order } = req.query;
+
+      const filters: {
+        type?: 'expense' | 'supplier_invoice' | 'all';
+        categoryId?: number | 'all';
+        hasBrs?: boolean;
+        isStockPurchase?: boolean;
+        sortBy?: 'date' | 'supplier' | 'amount';
+        sortOrder?: 'asc' | 'desc';
+      } = {};
+
+      if (type && ['expense', 'supplier_invoice', 'all'].includes(type as string)) {
+        filters.type = type as 'expense' | 'supplier_invoice' | 'all';
+      }
+
+      if (category_id) {
+        if (category_id === 'all') {
+          filters.categoryId = 'all';
+        } else {
+          const catId = parseInt(category_id as string);
+          if (!isNaN(catId)) {
+            filters.categoryId = catId;
+          }
+        }
+      }
+
+      if (has_brs === 'true') {
+        filters.hasBrs = true;
+      }
+
+      if (is_stock_purchase === 'true') {
+        filters.isStockPurchase = true;
+      }
+
+      if (sort_by && ['date', 'supplier', 'amount'].includes(sort_by as string)) {
+        filters.sortBy = sort_by as 'date' | 'supplier' | 'amount';
+      }
+
+      if (sort_order && ['asc', 'desc'].includes(sort_order as string)) {
+        filters.sortOrder = sort_order as 'asc' | 'desc';
+      }
+
+      const hasFilters = Object.keys(filters).length > 0;
+      const invoices = hasFilters 
+        ? await storage.getInvoicesByUserWithFilters(userName, filters)
+        : await storage.getInvoicesByUser(userName);
+      
       res.json(invoices);
     } catch (error) {
       console.error("Error fetching invoices:", error);
@@ -453,7 +499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update invoice
+  // Update invoice with full Phase 2 validation
   app.put("/api/invoices/:id", upload.single("file"), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -475,65 +521,174 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const {
         invoiceDate,
         supplierId,
-        category,
         amountDisplayTTC,
+        isStockPurchase,
+        categoryId,
         vatApplicable,
-        amountHT,
+        hasBrs,
+        invoiceType,
+        invoiceNumber,
         description,
         paymentType,
         projectId,
       } = req.body;
 
+      // Parse values
+      const parsedAmountDisplayTTC = parseFloat(amountDisplayTTC) || 0;
+      const parsedCategoryId = categoryId ? parseInt(categoryId) : null;
+      const parsedVatApplicable = vatApplicable === "true" || vatApplicable === true;
+      const parsedHasBrs = hasBrs === "true" || hasBrs === true;
+      const parsedIsStockPurchase = isStockPurchase === "true" || isStockPurchase === true;
+
+      // Get category data for validations
+      let categoryData = null;
+      let categoryName = "";
+      if (parsedCategoryId) {
+        categoryData = await storage.getCategoryById(parsedCategoryId);
+        if (!categoryData) {
+          return res.status(400).json({ message: "Catégorie invalide" });
+        }
+        categoryName = categoryData.appName;
+      }
+
+      // Get supplier for validation
+      const finalSupplierId = supplierId || existingInvoice.supplierId;
+      const supplier = await storage.getSupplierById(finalSupplierId);
+
+      // ==================== VALIDATIONS (same as POST) ====================
+
+      // VALIDATION 1: Stock purchase must use stock category
+      if (parsedIsStockPurchase) {
+        if (categoryData && categoryData.accountCode !== "3210000000") {
+          return res.status(400).json({ 
+            message: "Les achats pour le stock doivent utiliser la catégorie Stock" 
+          });
+        }
+      }
+
+      // VALIDATION 2: Restaurant/Essence categories force TVA=false
+      if (categoryData) {
+        const accountName = categoryData.accountName;
+        if (
+          (accountName === "Réceptions" || accountName === "Fournitures non stockables - Energies") &&
+          parsedVatApplicable
+        ) {
+          return res.status(400).json({ 
+            message: "La TVA n'est pas applicable pour les catégories Restaurant ou Essence" 
+          });
+        }
+      }
+
+      // VALIDATION 3: BRS only for specific categories + TVA=Non
+      if (parsedHasBrs) {
+        const brsCategoryNames = [
+          "Achats d'études et prestations de services",
+          "Transports sur ventes",
+          "Autres entretiens et réparations"
+        ];
+        
+        if (parsedVatApplicable) {
+          return res.status(400).json({ 
+            message: "BRS applicable uniquement pour Prestation de services, Transports ou Frais de maintenance sans TVA" 
+          });
+        }
+        if (categoryData && !brsCategoryNames.includes(categoryData.accountName)) {
+          return res.status(400).json({ 
+            message: "BRS applicable uniquement pour Prestation de services, Transports ou Frais de maintenance sans TVA" 
+          });
+        }
+      }
+
+      // VALIDATION 4: Invoice type forcing rules
+      if (invoiceType && categoryData) {
+        const mustBeSupplierInvoice = 
+          parsedAmountDisplayTTC >= 500000 || 
+          supplier?.isRegularSupplier === true || 
+          parsedHasBrs;
+
+        if (mustBeSupplierInvoice && invoiceType !== "supplier_invoice") {
+          return res.status(400).json({ 
+            message: "Ce montant/fournisseur/BRS nécessite une Facture Fournisseur" 
+          });
+        }
+
+        const accountName = categoryData.accountName;
+        const mustBeExpense = 
+          accountName === "Réceptions" || 
+          accountName === "Fournitures non stockables - Energies";
+
+        if (mustBeExpense && invoiceType !== "expense") {
+          return res.status(400).json({ 
+            message: "Les catégories Restaurant/Essence doivent être des Dépenses" 
+          });
+        }
+      }
+
+      // VALIDATION 5: Invoice number required for supplier_invoice
+      if (invoiceType === "supplier_invoice" && !invoiceNumber) {
+        return res.status(400).json({ 
+          message: "Le numéro de facture est requis pour les Factures Fournisseur" 
+        });
+      }
+
+      // Calculate amounts
+      let calculatedAmountHT = null;
+      let calculatedAmountRealTTC = parsedAmountDisplayTTC.toString();
+
+      if (parsedVatApplicable && parsedAmountDisplayTTC > 0) {
+        calculatedAmountHT = (parsedAmountDisplayTTC / 1.18).toString();
+      }
+
+      if (parsedHasBrs && parsedAmountDisplayTTC > 0) {
+        calculatedAmountRealTTC = (parsedAmountDisplayTTC / 0.95).toString();
+      }
+
       // Prepare update data
-      const updateData: any = {};
-      
-      if (invoiceDate) updateData.invoiceDate = new Date(invoiceDate);
-      if (supplierId) updateData.supplierId = supplierId;
-      if (category) updateData.category = category;
-      if (amountDisplayTTC) updateData.amountDisplayTTC = amountDisplayTTC.toString();
-      if (vatApplicable !== undefined) updateData.vatApplicable = vatApplicable === "true";
-      if (amountHT !== undefined) updateData.amountHT = amountHT ? amountHT.toString() : null;
-      if (description !== undefined) updateData.description = description || null;
-      if (paymentType) updateData.paymentType = paymentType;
-      if (projectId !== undefined) updateData.projectId = projectId || null;
+      const updateData: any = {
+        invoiceDate: invoiceDate ? new Date(invoiceDate) : existingInvoice.invoiceDate,
+        supplierId: finalSupplierId,
+        amountDisplayTTC: parsedAmountDisplayTTC.toString(),
+        isStockPurchase: parsedIsStockPurchase,
+        categoryId: parsedCategoryId,
+        category: categoryName,
+        vatApplicable: parsedVatApplicable,
+        amountHT: calculatedAmountHT,
+        hasBrs: parsedHasBrs,
+        amountRealTTC: calculatedAmountRealTTC,
+        invoiceType: invoiceType || "expense",
+        invoiceNumber: invoiceType === "supplier_invoice" ? invoiceNumber : null,
+        description: description || null,
+        paymentType: paymentType || existingInvoice.paymentType,
+        projectId: projectId || null,
+      };
 
       // Handle file replacement
       if (file) {
-        // Get supplier name for file naming
-        const finalSupplierId = supplierId || existingInvoice.supplierId;
-        const supplier = await storage.getSupplierById(finalSupplierId);
         if (!supplier) {
           return res.status(400).json({ message: "Supplier not found" });
         }
 
-        // Generate file name with new format: YYMMDD_Supplier_AmountTTC
         const finalInvoiceDate = invoiceDate || existingInvoice.invoiceDate.toISOString().split('T')[0];
-        const finalAmountDisplayTTC = amountDisplayTTC || existingInvoice.amountDisplayTTC;
         const fileName = generateFileName(
           finalInvoiceDate,
           supplier.name,
-          finalAmountDisplayTTC,
+          parsedAmountDisplayTTC.toString(),
           file.originalname
         );
 
-        // Upload new file to Google Drive
         const driveFileId = await uploadFileToDrive(file, userToken.driveFolderId, fileName);
 
-        // Delete old file from Drive
         try {
           await deleteFileFromDrive(existingInvoice.driveFileId);
         } catch (driveError) {
           console.error("Error deleting old file from Drive:", driveError);
-          // Continue even if old file deletion fails
         }
 
-        // Update file references
         updateData.fileName = fileName;
         updateData.filePath = driveFileId;
         updateData.driveFileId = driveFileId;
       }
 
-      // Update invoice in database
       const updatedInvoice = await storage.updateInvoice(id, updateData);
 
       if (!updatedInvoice) {
