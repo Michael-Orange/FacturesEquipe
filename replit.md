@@ -61,7 +61,28 @@ Preferred communication style: Simple, everyday language.
     - Android users retain camera + gallery functionality
 - `SupplierSearch`: Fuzzy search component using Fuse.js for intelligent supplier matching
 - `ProjectSelect`: Grouped project selection (2025 projects vs. older projects)
-- `TrackingTable`: Invoice history display with download/delete capabilities
+- **Phase 3 Tracking & Visualization Components (Nov 2025):**
+  - `TrackingFilters`: Filter component with:
+    - Type dropdown (Tous/Dépense/Facture Fournisseur)
+    - Category dropdown (all 14 Zoho categories)
+    - BRS checkbox ("Seulement BRS")
+    - Stock checkbox ("Seulement Stock")
+    - Sort dropdown (Date/Montant/Fournisseur) with asc/desc toggle
+  - `TrackingTable`: Enhanced invoice list with:
+    - Desktop: Table view with columns (Date, Fournisseur, Catégorie, Type, Montant TTC, N° facture, Actions)
+    - Mobile: Card view with all info in compact layout
+    - Badges for Type (blue=Dépense, indigo=Facture Fournisseur)
+    - Badges for BRS (neutral gray) and Stock (amber) indicators
+    - "Voir" button to open detail modal
+  - `InvoiceDetailModal`: Full invoice details in modal:
+    - All Phase 2 fields displayed
+    - BRS calculation section (when applicable)
+    - Download/Edit/Delete action buttons
+  - `InvoiceEdit`: Full invoice editing page:
+    - Pre-populated form with all Phase 2 fields
+    - Same validation logic as InvoiceForm
+    - BRS auto-detection, invoice type forcing
+    - Optional file replacement
 - `AdminDashboard`: Administrative interface for data export and database management
 
 ### Backend Architecture
@@ -82,8 +103,12 @@ Preferred communication style: Simple, everyday language.
 - `GET /api/suppliers` - Retrieves all suppliers
 - `POST /api/suppliers` - Creates new suppliers with duplicate detection
 - `GET /api/projects` - Fetches all projects
+- `GET /api/categories` - Fetches all Zoho accounting categories
 - `POST /api/invoices` - Creates invoice with file upload
+- `GET /api/invoices/:userName` - Lists invoices with optional filtering/sorting (Phase 3):
+  - Query params: type, category_id, has_brs, is_stock_purchase, sort_by, sort_order
 - `GET /api/invoices/:id/download` - Downloads invoice file from Google Drive
+- `PUT /api/invoices/:id` - Updates invoice with same validations as POST (Phase 3)
 - `DELETE /api/invoices/:id` - Deletes invoice and associated Drive file
 - `POST /api/admin/login` - Admin password authentication
 - `GET /api/admin/export-csv` - Exports all invoices to CSV
