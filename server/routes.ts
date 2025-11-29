@@ -7,8 +7,8 @@ import { storage, generateExpenseNumber } from "./storage";
 import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
-import { insertInvoiceSchema, insertSupplierSchema, invoices, InvoiceWithDetails } from "@shared/schema";
-import { isNull } from "drizzle-orm";
+import { insertInvoiceSchema, insertSupplierSchema, invoices, InvoiceWithDetails, paymentMethodsMapping, categories, suppliers, projects } from "@shared/schema";
+import { isNull, eq, and, gte, lte, desc, asc } from "drizzle-orm";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { generateFileName } from "./utils";
@@ -981,6 +981,157 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
     } catch (error) {
       console.error("Error exporting Axonaut CSV Fatou:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ============================================
+  // ZOHO EXPORTS - Dépenses format Zoho Books
+  // ============================================
+
+  // Helper function to generate Zoho CSV for expenses
+  function generateZohoExpenseCSV(expenseData: any[]): string {
+    // Headers exactly as in Zoho Books import template (27 columns)
+    const csvHeader = "Entry Number,Expense Date,Expense Account,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,Branch Name,Employee Email,CF.company,Project Name\n";
+    
+    const csvRows = expenseData.map((exp, index) => {
+      const entryNumber = index + 1;
+      const expenseDate = format(new Date(exp.invoiceDate), "yyyy-MM-dd");
+      
+      // Expense Account from categories.account_name
+      const expenseAccount = exp.categoryAccountName || "";
+      
+      // Paid Through from payment_methods_mapping.zoho_name (with fallback)
+      const paidThrough = exp.paymentZohoName || exp.paymentType;
+      if (!exp.paymentZohoName && exp.paymentType) {
+        console.warn(`Mode paiement non mappé : ${exp.paymentType}`);
+      }
+      
+      // Expense Amount: use amount_real_ttc for Zoho
+      const expenseAmount = parseFloat(exp.amountRealTTC || exp.amountDisplayTTC).toFixed(2);
+      
+      // Tax fields: only if VAT applicable
+      const taxName = exp.vatApplicable ? "TVA" : "";
+      const taxPercentage = exp.vatApplicable ? "18" : "";
+      const isInclusiveTax = exp.vatApplicable ? "true" : "";
+      
+      // Reference# = invoice_number (DEP-XX-YYMM-XXX)
+      const reference = exp.invoiceNumber || "";
+      
+      // Project Name
+      const projectName = exp.projectName || "";
+      
+      // Escape function for CSV values with commas
+      const escapeCSV = (val: string) => {
+        if (val && (val.includes(",") || val.includes('"') || val.includes("\n"))) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val || "";
+      };
+
+      return [
+        entryNumber,                          // Entry Number
+        expenseDate,                          // Expense Date
+        escapeCSV(expenseAccount),            // Expense Account
+        escapeCSV(paidThrough),               // Paid Through
+        escapeCSV(exp.supplierName),          // Vendor
+        escapeCSV(exp.description),           // Expense Description
+        "XOF",                                // Currency Code
+        "1",                                  // Exchange Rate
+        expenseAmount,                        // Expense Amount
+        taxName,                              // Tax Name
+        taxPercentage,                        // Tax Percentage
+        isInclusiveTax,                       // Is Inclusive Tax
+        "False",                              // Is Billable
+        "",                                   // Customer Name
+        reference,                            // Reference#
+        "",                                   // Mileage Rate
+        "",                                   // Distance
+        "",                                   // Start Odometer Reading
+        "",                                   // End Odometer Reading
+        "",                                   // Mileage Unit
+        "NonMileage",                         // Mileage Type
+        "",                                   // Expense Reference ID
+        "",                                   // Tax Type
+        "",                                   // Branch Name
+        "",                                   // Employee Email
+        "",                                   // CF.company
+        escapeCSV(projectName),               // Project Name
+      ].join(",");
+    });
+
+    return csvHeader + csvRows.join("\n");
+  }
+
+  // Admin export Zoho Expenses CSV (protected)
+  app.get("/api/admin/export-zoho-expenses", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const { user, date_start, date_end } = req.query;
+      
+      // Build WHERE conditions
+      const conditions: any[] = [
+        eq(invoices.invoiceType, "expense"),
+        isNull(invoices.archive),
+      ];
+      
+      // Filter by user if specified
+      if (user && user !== "all") {
+        const userName = String(user).charAt(0).toUpperCase() + String(user).slice(1).toLowerCase();
+        conditions.push(eq(invoices.userName, userName));
+      }
+      
+      // Filter by date range if specified
+      if (date_start) {
+        conditions.push(gte(invoices.invoiceDate, new Date(String(date_start))));
+      }
+      if (date_end) {
+        const endDate = new Date(String(date_end));
+        endDate.setHours(23, 59, 59, 999);
+        conditions.push(lte(invoices.invoiceDate, endDate));
+      }
+      
+      // Query with all necessary joins including payment_methods_mapping
+      const result = await db
+        .select({
+          id: invoices.id,
+          userName: invoices.userName,
+          invoiceDate: invoices.invoiceDate,
+          supplierId: invoices.supplierId,
+          supplierName: suppliers.name,
+          amountDisplayTTC: invoices.amountDisplayTTC,
+          amountRealTTC: invoices.amountRealTTC,
+          vatApplicable: invoices.vatApplicable,
+          description: invoices.description,
+          paymentType: invoices.paymentType,
+          invoiceNumber: invoices.invoiceNumber,
+          projectId: invoices.projectId,
+          projectName: projects.name,
+          categoryId: invoices.categoryId,
+          categoryAccountName: categories.accountName,
+          paymentZohoName: paymentMethodsMapping.zohoName,
+        })
+        .from(invoices)
+        .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
+        .leftJoin(projects, eq(invoices.projectId, projects.id))
+        .leftJoin(categories, eq(invoices.categoryId, categories.id))
+        .leftJoin(paymentMethodsMapping, eq(invoices.paymentType, paymentMethodsMapping.appName))
+        .where(and(...conditions))
+        .orderBy(asc(invoices.invoiceDate));
+      
+      // Generate filename
+      const userLabel = user === "all" ? "Toutes" : String(user).charAt(0).toUpperCase() + String(user).slice(1).toLowerCase();
+      const dateLabel = date_end ? format(new Date(String(date_end)), "yyyyMM") : format(new Date(), "yyyyMM");
+      const filename = `Depenses_${userLabel}_${dateLabel}.csv`;
+      
+      // Generate CSV
+      const csv = generateZohoExpenseCSV(result);
+      
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("X-Export-Count", result.length.toString());
+      res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
+    } catch (error) {
+      console.error("Error exporting Zoho Expenses CSV:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
