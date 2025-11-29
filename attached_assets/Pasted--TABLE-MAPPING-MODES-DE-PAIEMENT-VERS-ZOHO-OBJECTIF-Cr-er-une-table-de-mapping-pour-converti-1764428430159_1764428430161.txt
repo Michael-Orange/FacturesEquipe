@@ -1,0 +1,86 @@
+# TABLE MAPPING MODES DE PAIEMENT VERS ZOHO
+
+## OBJECTIF
+Créer une table de mapping pour convertir les modes de paiement Filtreplante vers les noms exacts des comptes Zoho Books.
+
+## CONTEXTE
+Pour les exports Zoho (Dépenses et Factures Fournisseurs), les noms de comptes bancaires doivent correspondre exactement aux noms dans Zoho. Cette table centralise ces équivalences.
+
+## CRÉATION TABLE
+
+### Nom de la table : payment_methods_mapping
+
+### Colonnes :
+
+| Colonne | Type | Contraintes | Description |
+|---------|------|-------------|-------------|
+| id | integer | PRIMARY KEY, AUTO_INCREMENT | Identifiant unique |
+| app_name | varchar(100) | NOT NULL, UNIQUE | Nom du mode de paiement dans l'app Filtreplante |
+| zoho_name | varchar(150) | NOT NULL | Nom exact du compte dans Zoho Books |
+| created_at | timestamp | DEFAULT NOW() | Date de création |
+| updated_at | timestamp | DEFAULT NOW() | Date de modification |
+
+### Indexes
+
+Créer un index sur `app_name` pour optimiser les recherches lors des exports.
+
+## DONNÉES À INSÉRER
+
+Insérer les 5 mappings suivants :
+
+| app_name | zoho_name |
+|----------|-----------|
+| Wave Business | Banques - autres (Wave Business Principal) |
+| Wave Business Caisse | Banques - autres (Wave Business Caisse) |
+| Espèces | Caisse en monnaie nationale |
+| Perso remboursé | Banques - autres (Wave Business Principal) |
+| Carte bancaire | Banques en monnaie nationale |
+
+**IMPORTANT :** Respecter exactement les majuscules, minuscules, espaces et accents dans `zoho_name` (sensible à la casse pour Zoho).
+
+## UTILISATION FUTURE
+
+Cette table sera utilisée par :
+1. Export Dépenses Zoho (à venir)
+2. Export Factures Fournisseurs Zoho (à venir)
+
+Lors d'un export, le système fera une jointure ou une requête pour récupérer le `zoho_name` correspondant au `payment_method` de la facture.
+
+## EMPLACEMENT DANS LE SCHÉMA
+
+Placer cette table à côté des autres tables de configuration (categories, suppliers, projects, etc.).
+
+Si utilisation de Drizzle ORM : créer le schéma dans le fichier approprié.
+
+## TESTS APRÈS CRÉATION
+
+### Test 1 : Table créée
+1. Vérifier que la table existe dans la base de données
+2. Vérifier les 5 colonnes présentes
+
+### Test 2 : Données insérées
+1. SELECT * FROM payment_methods_mapping
+2. Vérifier 5 lignes présentes
+3. Vérifier noms Zoho exacts (majuscules, espaces)
+
+### Test 3 : Contrainte UNIQUE
+1. Tenter insérer un doublon sur app_name
+2. Vérifier erreur de contrainte
+
+### Test 4 : Requête de mapping
+1. SELECT zoho_name FROM payment_methods_mapping WHERE app_name = 'Wave Business'
+2. Vérifier retour : "Banques - autres (Wave Business Principal)"
+
+## POINTS D'ATTENTION
+
+1. **Noms Zoho exacts** - Ne pas modifier les espaces, majuscules, accents
+2. **Contrainte UNIQUE sur app_name** - Évite les doublons
+3. **Pas de suppression** - Ces données sont nécessaires pour tous les exports futurs
+4. **Extensible** - Si nouveau mode de paiement, il suffit d'INSERT INTO
+
+## RÉSULTAT ATTENDU
+
+- ✅ Table payment_methods_mapping créée avec 5 colonnes
+- ✅ 5 mappings insérés
+- ✅ Contrainte UNIQUE fonctionnelle
+- ✅ Prêt pour être utilisé dans exports Zoho
