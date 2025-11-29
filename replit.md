@@ -124,6 +124,12 @@ Preferred communication style: Simple, everyday language.
 - `DELETE /api/invoices/:id` - Deletes invoice and associated Drive file
 - `POST /api/admin/login` - Admin password authentication
 - `GET /api/admin/export-csv` - Exports all invoices to CSV
+- `GET /api/admin/export-axonaut-{user}` - Exports invoices in Axonaut format per user
+- **Phase 5 (Nov 2025):** `GET /api/admin/export-zoho-expenses` - Exports expenses to Zoho Books format
+  - Query params: user (michael/marine/fatou/all), date_start, date_end
+  - Only exports invoice_type='expense' (not supplier invoices)
+  - Uses payment_methods_mapping table for "Paid Through" column
+  - 27-column CSV format matching Zoho Books import template
 
 ### Data Storage
 
@@ -160,6 +166,10 @@ Preferred communication style: Simple, everyday language.
 
 6. **admin_config** - Admin panel configuration
    - Stores hashed admin password
+
+7. **payment_methods_mapping** - Maps app payment methods to Zoho account names (Phase 5)
+   - Maps internal payment types (Wave Business, Espèces, etc.) to Zoho Books account names
+   - Used by Zoho expense export for "Paid Through" column
 
 **Data Initialization:**
 - Seeding script populates suppliers and projects from CSV files on first run
