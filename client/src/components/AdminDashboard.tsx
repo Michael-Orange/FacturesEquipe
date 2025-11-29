@@ -159,7 +159,7 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
       
       const response = await fetch(`/api/admin/export-zoho-expenses?${params.toString()}`, {
         headers: {
-          "Authorization": `Bearer ${localStorage.getItem("adminToken")}`,
+          "Authorization": `Bearer ${localStorage.getItem("adminSessionToken")}`,
         },
       });
       
