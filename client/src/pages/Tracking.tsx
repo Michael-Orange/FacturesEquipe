@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { Loader2, AlertCircle, FileText, ArrowLeft, Download } from "lucide-react";
-import { TrackingTable } from "@/components/TrackingTable";
+import { TrackingTable, type InvoiceWithDetails } from "@/components/TrackingTable";
+import { TrackingFilters, type InvoiceFilters } from "@/components/TrackingFilters";
+import { InvoiceDetailModal } from "@/components/InvoiceDetailModal";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import type { Category, UserToken } from "@shared/schema";
 
 export default function Tracking() {
   const [, params] = useRoute("/tracking/:userToken");
@@ -15,21 +19,59 @@ export default function Tracking() {
   const token = userToken?.split('_').slice(1).join('_');
   const { toast } = useToast();
 
-  const { data: userData, isLoading: userLoading, error: userError } = useQuery({
+  const [filters, setFilters] = useState<InvoiceFilters>({
+    type: "all",
+    categoryId: "all",
+    hasBrs: false,
+    isStockPurchase: false,
+    sortBy: "date",
+    sortOrder: "desc",
+  });
+
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithDetails | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [loadingDownload, setLoadingDownload] = useState(false);
+
+  const { data: userData, isLoading: userLoading, error: userError } = useQuery<UserToken>({
     queryKey: ["/api/validate-token", token],
     enabled: !!token,
   });
 
-  // Verify username in URL matches the token owner
   const isValidUser = userData && urlUsername && userData.name.toLowerCase() === urlUsername.toLowerCase();
 
-  const { data: invoices = [], isLoading: invoicesLoading } = useQuery({
-    queryKey: ["/api/invoices", userData?.name],
+  const { data: categories = [] } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+    enabled: !!userData,
+  });
+
+  const buildQueryParams = () => {
+    const params = new URLSearchParams();
+    if (filters.type !== "all") params.append("type", filters.type);
+    if (filters.categoryId !== "all") params.append("category_id", filters.categoryId);
+    if (filters.hasBrs) params.append("has_brs", "true");
+    if (filters.isStockPurchase) params.append("is_stock_purchase", "true");
+    if (filters.sortBy !== "date") params.append("sort_by", filters.sortBy);
+    if (filters.sortOrder !== "desc") params.append("sort_order", filters.sortOrder);
+    return params.toString();
+  };
+
+  const queryParams = buildQueryParams();
+  const invoicesQueryKey = queryParams 
+    ? `/api/invoices/${userData?.name}?${queryParams}`
+    : `/api/invoices/${userData?.name}`;
+
+  const { data: invoices = [], isLoading: invoicesLoading } = useQuery<InvoiceWithDetails[]>({
+    queryKey: ["/api/invoices", userData?.name, filters],
+    queryFn: async () => {
+      const response = await fetch(invoicesQueryKey);
+      if (!response.ok) throw new Error("Failed to fetch invoices");
+      return response.json();
+    },
     enabled: !!userData,
   });
 
   const downloadInvoiceMutation = useMutation({
-    mutationFn: async (invoice: any) => {
+    mutationFn: async (invoice: InvoiceWithDetails) => {
       const response = await fetch(`/api/invoices/${invoice.id}/download`);
       if (!response.ok) throw new Error("Erreur lors du téléchargement");
 
@@ -108,6 +150,24 @@ export default function Tracking() {
     },
   });
 
+  const handleViewDetails = (invoice: InvoiceWithDetails) => {
+    setSelectedInvoice(invoice);
+    setDetailModalOpen(true);
+  };
+
+  const handleModalDownload = async (invoice: InvoiceWithDetails) => {
+    setLoadingDownload(true);
+    try {
+      await downloadInvoiceMutation.mutateAsync(invoice);
+    } finally {
+      setLoadingDownload(false);
+    }
+  };
+
+  const handleModalDelete = (invoiceId: string) => {
+    deleteInvoiceMutation.mutate(invoiceId);
+  };
+
   if (!token) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -162,7 +222,7 @@ export default function Tracking() {
           <div>
             <h2 className="text-2xl font-bold mb-1">Mes factures</h2>
             <p className="text-muted-foreground">
-              {invoices.length} facture{invoices.length !== 1 ? "s" : ""} soumise{invoices.length !== 1 ? "s" : ""}
+              {invoices.length} facture{invoices.length !== 1 ? "s" : ""} affichée{invoices.length !== 1 ? "s" : ""}
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -186,13 +246,30 @@ export default function Tracking() {
           </div>
         </div>
 
+        <TrackingFilters
+          filters={filters}
+          categories={categories}
+          onFiltersChange={setFilters}
+        />
+
         <TrackingTable
           invoices={invoices}
           onDownload={downloadInvoiceMutation.mutateAsync}
           onEdit={(invoiceId) => setLocation(`/edit/${invoiceId}/${userToken}`)}
           onDelete={deleteInvoiceMutation.mutateAsync}
+          onViewDetails={handleViewDetails}
         />
       </main>
+
+      <InvoiceDetailModal
+        invoice={selectedInvoice}
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+        onDownload={handleModalDownload}
+        onEdit={(invoiceId) => setLocation(`/edit/${invoiceId}/${userToken}`)}
+        onDelete={handleModalDelete}
+        loadingDownload={loadingDownload}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Trash2, FileText, Pencil } from "lucide-react";
+import { Download, Trash2, FileText, Pencil, Eye, Package, Receipt } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -23,23 +23,42 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
-interface InvoiceWithDetails {
+export interface InvoiceWithDetails {
   id: string;
   userName: string;
   invoiceDate: string;
+  supplierId: string;
   supplierName: string;
+  supplierIsRegular?: boolean;
   category: string;
   amountDisplayTTC: string;
   vatApplicable: boolean;
   amountHT?: string | null;
+  amountRealTTC?: string | null;
   description?: string | null;
   paymentType: string;
+  projectId?: string | null;
   projectNumber?: string;
   projectName?: string;
   fileName: string;
   driveFileId: string;
   createdAt: string;
+  invoiceType?: string;
+  invoiceNumber?: string | null;
+  isStockPurchase?: boolean;
+  categoryId?: number | null;
+  hasBrs?: boolean;
+  categoryAppName?: string;
+  categoryAccountName?: string;
+  categoryAccountCode?: string;
+  displayCategory?: string;
+  displayAmount?: string;
 }
 
 interface TrackingTableProps {
@@ -47,9 +66,10 @@ interface TrackingTableProps {
   onDownload: (invoice: InvoiceWithDetails) => Promise<void>;
   onEdit: (invoiceId: string) => void;
   onDelete: (invoiceId: string) => Promise<void>;
+  onViewDetails: (invoice: InvoiceWithDetails) => void;
 }
 
-export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: TrackingTableProps) {
+export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDetails }: TrackingTableProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithDetails | null>(null);
   const [loadingDownload, setLoadingDownload] = useState<string | null>(null);
@@ -82,6 +102,58 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
     }
   };
 
+  const formatAmount = (amount: string | number) => {
+    const num = typeof amount === "string" ? parseFloat(amount) : amount;
+    return num.toLocaleString("fr-FR");
+  };
+
+  const getTypeBadge = (invoice: InvoiceWithDetails) => {
+    if (invoice.invoiceType === "supplier_invoice") {
+      return (
+        <Badge variant="default" className="bg-blue-600 hover:bg-blue-600">
+          Facture
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="secondary">
+        Dépense
+      </Badge>
+    );
+  };
+
+  const getIndicatorBadges = (invoice: InvoiceWithDetails) => {
+    const badges = [];
+    
+    if (invoice.isStockPurchase) {
+      badges.push(
+        <Tooltip key="stock">
+          <TooltipTrigger>
+            <Badge variant="outline" className="bg-amber-50 border-amber-300 text-amber-700">
+              <Package className="h-3 w-3" />
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>Achat pour le stock</TooltipContent>
+        </Tooltip>
+      );
+    }
+    
+    if (invoice.hasBrs) {
+      badges.push(
+        <Tooltip key="brs">
+          <TooltipTrigger>
+            <Badge variant="outline" className="bg-purple-50 border-purple-300 text-purple-700">
+              <Receipt className="h-3 w-3" />
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>Retenue BRS appliquée</TooltipContent>
+        </Tooltip>
+      );
+    }
+    
+    return badges;
+  };
+
   if (invoices.length === 0) {
     return (
       <Card className="p-12 bg-muted/30">
@@ -94,7 +166,7 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
           <div className="space-y-2">
             <h3 className="text-xl font-semibold">Aucune facture</h3>
             <p className="text-muted-foreground">
-              Vous n'avez pas encore soumis de factures.
+              Aucune facture ne correspond à vos critères de recherche.
             </p>
           </div>
         </div>
@@ -105,35 +177,55 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
   return (
     <>
       <div className="rounded-lg border overflow-hidden">
-        {/* Mobile view */}
         <div className="md:hidden divide-y">
           {invoices.map((invoice) => (
-            <Card key={invoice.id} className="p-4 rounded-none border-0 border-b last:border-b-0">
+            <Card 
+              key={invoice.id} 
+              className="p-4 rounded-none border-0 border-b last:border-b-0 cursor-pointer hover-elevate"
+              onClick={() => onViewDetails(invoice)}
+              data-testid={`card-invoice-${invoice.id}`}
+            >
               <div className="space-y-3">
                 <div className="flex justify-between items-start gap-2">
                   <div className="space-y-1 flex-1 min-w-0">
-                    <p className="font-semibold text-sm truncate">{invoice.supplierName}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm truncate">{invoice.supplierName}</p>
+                      {getIndicatorBadges(invoice)}
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(invoice.invoiceDate), "d MMMM yyyy", { locale: fr })}
                     </p>
                   </div>
-                  <Badge variant="secondary" className="shrink-0">
-                    {invoice.category}
-                  </Badge>
+                  {getTypeBadge(invoice)}
                 </div>
 
                 <div className="flex justify-between items-center">
                   <div className="space-y-1">
                     <p className="text-lg font-bold text-primary">
-                      {parseFloat(invoice.amountDisplayTTC).toLocaleString("fr-FR")} FCFA
+                      {formatAmount(invoice.amountDisplayTTC)} FCFA
                     </p>
-                    {invoice.projectNumber && (
+                    {invoice.vatApplicable && invoice.amountHT && (
                       <p className="text-xs text-muted-foreground">
-                        {invoice.projectNumber} - {invoice.projectName}
+                        HT: {formatAmount(invoice.amountHT)} FCFA
                       </p>
                     )}
                   </div>
+                  <Badge variant="outline" className="shrink-0 text-xs">
+                    {invoice.displayCategory || invoice.categoryAppName || invoice.category}
+                  </Badge>
                 </div>
+
+                {invoice.invoiceNumber && (
+                  <p className="text-xs text-muted-foreground">
+                    N° Facture: {invoice.invoiceNumber}
+                  </p>
+                )}
+
+                {invoice.projectNumber && (
+                  <p className="text-xs text-muted-foreground">
+                    {invoice.projectNumber} - {invoice.projectName}
+                  </p>
+                )}
 
                 {invoice.description && (
                   <p className="text-sm text-muted-foreground line-clamp-2">
@@ -141,7 +233,7 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
                   </p>
                 )}
 
-                <div className="flex gap-2 pt-2">
+                <div className="flex gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
                   <Button
                     variant="outline"
                     size="sm"
@@ -179,19 +271,24 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
           ))}
         </div>
 
-        {/* Desktop view */}
         <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow className="bg-primary hover:bg-primary">
                 <TableHead className="text-primary-foreground font-semibold">Date</TableHead>
+                <TableHead className="text-primary-foreground font-semibold">Type</TableHead>
                 <TableHead className="text-primary-foreground font-semibold">Fournisseur</TableHead>
                 <TableHead className="text-primary-foreground font-semibold">Catégorie</TableHead>
                 <TableHead className="text-primary-foreground font-semibold text-right">
                   Montant TTC
                 </TableHead>
-                <TableHead className="text-primary-foreground font-semibold">Projet</TableHead>
-                <TableHead className="text-primary-foreground font-semibold">Description</TableHead>
+                <TableHead className="text-primary-foreground font-semibold text-right">
+                  Montant HT
+                </TableHead>
+                <TableHead className="text-primary-foreground font-semibold">N° Facture</TableHead>
+                <TableHead className="text-primary-foreground font-semibold text-center">
+                  Indicateurs
+                </TableHead>
                 <TableHead className="text-primary-foreground font-semibold text-center">
                   Actions
                 </TableHead>
@@ -199,60 +296,109 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete }: Tracki
             </TableHeader>
             <TableBody>
               {invoices.map((invoice) => (
-                <TableRow key={invoice.id} className="hover:bg-muted/50" data-testid={`row-invoice-${invoice.id}`}>
+                <TableRow 
+                  key={invoice.id} 
+                  className="hover:bg-muted/50 cursor-pointer" 
+                  data-testid={`row-invoice-${invoice.id}`}
+                  onClick={() => onViewDetails(invoice)}
+                >
                   <TableCell className="font-medium whitespace-nowrap">
                     {format(new Date(invoice.invoiceDate), "dd/MM/yyyy")}
                   </TableCell>
-                  <TableCell>{invoice.supplierName}</TableCell>
+                  <TableCell>{getTypeBadge(invoice)}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{invoice.category}</Badge>
+                    <div className="flex items-center gap-1">
+                      {invoice.supplierName}
+                      {invoice.supplierIsRegular && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Badge variant="outline" className="ml-1 text-xs">R</Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>Fournisseur régulier</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className="max-w-[150px] truncate">
+                      {invoice.displayCategory || invoice.categoryAppName || invoice.category}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-right font-semibold">
-                    {parseFloat(invoice.amountDisplayTTC).toLocaleString("fr-FR")} FCFA
+                    {formatAmount(invoice.amountDisplayTTC)} FCFA
                   </TableCell>
-                  <TableCell className="max-w-xs">
-                    {invoice.projectNumber && (
-                      <div className="text-sm">
-                        <p className="font-medium">{invoice.projectNumber}</p>
-                        <p className="text-muted-foreground truncate">{invoice.projectName}</p>
-                      </div>
-                    )}
+                  <TableCell className="text-right text-muted-foreground">
+                    {invoice.vatApplicable && invoice.amountHT
+                      ? `${formatAmount(invoice.amountHT)} FCFA`
+                      : "-"}
                   </TableCell>
-                  <TableCell className="max-w-md">
-                    {invoice.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {invoice.description}
-                      </p>
-                    )}
+                  <TableCell className="text-muted-foreground">
+                    {invoice.invoiceNumber || "-"}
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-2 justify-center">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleDownloadClick(invoice)}
-                        disabled={loadingDownload === invoice.id}
-                        data-testid={`button-download-${invoice.id}`}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => onEdit(invoice.id)}
-                        data-testid={`button-edit-${invoice.id}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleDeleteClick(invoice)}
-                        className="text-destructive hover:bg-destructive/10"
-                        data-testid={`button-delete-${invoice.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <div className="flex gap-1 justify-center">
+                      {getIndicatorBadges(invoice)}
+                      {getIndicatorBadges(invoice).length === 0 && (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <div className="flex gap-1 justify-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onViewDetails(invoice)}
+                            data-testid={`button-view-${invoice.id}`}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Voir les détails</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownloadClick(invoice)}
+                            disabled={loadingDownload === invoice.id}
+                            data-testid={`button-download-${invoice.id}`}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Télécharger</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onEdit(invoice.id)}
+                            data-testid={`button-edit-${invoice.id}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Modifier</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteClick(invoice)}
+                            className="text-destructive hover:text-destructive"
+                            data-testid={`button-delete-${invoice.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Supprimer</TooltipContent>
+                      </Tooltip>
                     </div>
                   </TableCell>
                 </TableRow>

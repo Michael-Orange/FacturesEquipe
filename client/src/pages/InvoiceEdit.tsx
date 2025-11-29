@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Pencil, AlertCircle } from "lucide-react";
+import { ArrowLeft, Pencil, AlertCircle, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,27 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { SupplierSearch } from "@/components/SupplierSearch";
 import { ProjectSelect } from "@/components/ProjectSelect";
-
-interface Supplier {
-  id: string;
-  name: string;
-  total?: string;
-}
-
-interface Project {
-  id: string;
-  number: string;
-  name: string;
-  startDate?: string | null;
-}
-
-interface UserData {
-  id: string;
-  name: string;
-  token: string;
-  email: string;
-  driveFolderId: string;
-}
+import type { Supplier, Project, Category, UserToken } from "@shared/schema";
 
 interface Invoice {
   id: string;
@@ -50,69 +30,117 @@ interface Invoice {
   amountDisplayTTC: string;
   vatApplicable: boolean;
   amountHT?: string | null;
+  amountRealTTC?: string | null;
   description?: string | null;
   paymentType: string;
   projectId?: string | null;
   fileName: string;
+  invoiceType?: string;
+  invoiceNumber?: string | null;
+  isStockPurchase?: boolean;
+  categoryId?: number | null;
+  hasBrs?: boolean;
+  supplierIsRegular?: boolean;
 }
 
-const CATEGORIES = [
-  "Fourniture Matériaux",
-  "Achats Prestas",
-  "Restauration, boissons et petits achats alimentaires",
-  "Transport de personnes",
-  "Transport de matériel",
-  "Telephone/Internet",
-  "Essence",
-  "Hébergement",
-  "Autre",
+interface FormData {
+  invoiceDate: string;
+  supplierId: string;
+  categoryId: string;
+  amountDisplayTTC: string;
+  isStockPurchase: boolean;
+  vatApplicable: boolean;
+  hasBrs: boolean;
+  invoiceType: "expense" | "supplier_invoice";
+  invoiceNumber: string;
+  description: string;
+  paymentType: string;
+  projectId: string;
+}
+
+const BRS_CATEGORY_ACCOUNT_NAMES = [
+  "Achats d'études et prestations de services",
+  "Transports sur ventes",
+  "Autres entretiens et réparations",
 ];
+
+const sortCategories = (cats: Category[]) => {
+  return [...cats].sort((a, b) => {
+    if (a.accountName === "Achats de matières premières et fournitures") return -1;
+    if (b.accountName === "Achats de matières premières et fournitures") return 1;
+    if (a.accountName === "Achats d'études et prestations de services") return -1;
+    if (b.accountName === "Achats d'études et prestations de services") return 1;
+    return a.appName.localeCompare(b.appName);
+  });
+};
 
 export default function InvoiceEdit() {
   const { invoiceId, userToken } = useParams();
-  const urlUsername = userToken?.split('_')[0];
-  const token = userToken?.split('_').slice(1).join('_');
+  const urlUsername = userToken?.split("_")[0];
+  const token = userToken?.split("_").slice(1).join("_");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  // Validate token
-  const { data: userData } = useQuery<UserData>({
+  const { data: userData } = useQuery<UserToken>({
     queryKey: ["/api/validate-token", token],
     enabled: !!token,
   });
 
-  // Verify username in URL matches the token owner
-  const isValidUser = userData && urlUsername && userData.name.toLowerCase() === urlUsername.toLowerCase();
+  const isValidUser =
+    userData && urlUsername && userData.name.toLowerCase() === urlUsername.toLowerCase();
 
-  // Fetch invoice data
   const { data: invoice, isLoading: isLoadingInvoice } = useQuery<Invoice>({
     queryKey: ["/api/invoice", invoiceId],
   });
 
-  // Fetch suppliers
   const { data: suppliers = [] } = useQuery<Supplier[]>({
     queryKey: ["/api/suppliers"],
   });
 
-  // Fetch projects
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
   });
 
-  // Form state
-  const [formData, setFormData] = useState<Partial<Invoice>>({});
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const { data: categories = [] } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+  });
 
-  // Initialize form data when invoice loads
+  const sortedCategories = sortCategories(categories);
+
+  const [formData, setFormData] = useState<FormData>({
+    invoiceDate: "",
+    supplierId: "",
+    categoryId: "",
+    amountDisplayTTC: "",
+    isStockPurchase: false,
+    vatApplicable: false,
+    hasBrs: false,
+    invoiceType: "expense",
+    invoiceNumber: "",
+    description: "",
+    paymentType: "",
+    projectId: "",
+  });
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [calculatedHT, setCalculatedHT] = useState<number | null>(null);
+  const [calculatedBRS, setCalculatedBRS] = useState<{ realTTC: number; brs: number } | null>(null);
+  const [forcedInvoiceType, setForcedInvoiceType] = useState(false);
+  const initRef = useRef(false);
+
   useEffect(() => {
-    if (invoice) {
+    if (invoice && !initRef.current) {
+      initRef.current = true;
       setFormData({
         invoiceDate: invoice.invoiceDate.split("T")[0],
         supplierId: invoice.supplierId,
-        category: invoice.category,
+        categoryId: invoice.categoryId?.toString() || "",
         amountDisplayTTC: invoice.amountDisplayTTC,
+        isStockPurchase: invoice.isStockPurchase || false,
         vatApplicable: invoice.vatApplicable,
-        amountHT: invoice.amountHT || "",
+        hasBrs: invoice.hasBrs || false,
+        invoiceType: (invoice.invoiceType as "expense" | "supplier_invoice") || "expense",
+        invoiceNumber: invoice.invoiceNumber || "",
         description: invoice.description || "",
         paymentType: invoice.paymentType,
         projectId: invoice.projectId || "",
@@ -120,35 +148,75 @@ export default function InvoiceEdit() {
     }
   }, [invoice]);
 
-  // Validation en temps réel du Montant HT
-  const lastToastTime = useRef<number>(0);
+  const selectedCategory = categories.find((c) => c.id.toString() === formData.categoryId);
+  const selectedSupplier = suppliers.find((s) => s.id === formData.supplierId);
+  const amount = parseFloat(formData.amountDisplayTTC) || 0;
+
+  const isRestaurantCategory = selectedCategory?.accountName === "Réceptions";
+  const isEssenceCategory = selectedCategory?.accountName === "Fournitures non stockables - Energies";
+  const isBrsCategory = selectedCategory && BRS_CATEGORY_ACCOUNT_NAMES.includes(selectedCategory.accountName);
+
+  const stockCategoryId = categories.find((c) => c.accountCode === "3210000000")?.id.toString();
+
   useEffect(() => {
-    if (formData.vatApplicable && formData.category !== "Restauration, boissons et petits achats alimentaires" && formData.amountDisplayTTC && formData.amountHT) {
-      const ttc = parseFloat(formData.amountDisplayTTC);
-      const ht = parseFloat(formData.amountHT);
-      
-      if (!isNaN(ttc) && !isNaN(ht) && ttc > 0) {
-        const expectedHT = ttc / 1.18;
-        const difference = Math.abs(ht - expectedHT);
-        const percentDifference = (difference / expectedHT) * 100;
-        
-        // Si différence > 2% et pas de toast récent (éviter spam)
-        const now = Date.now();
-        if (percentDifference > 2 && (now - lastToastTime.current) > 3000) {
-          lastToastTime.current = now;
-          toast({
-            title: "Vérification du montant HT",
-            description: `Le montant HT renseigné (${ht.toFixed(2)} FCFA) diffère du calcul attendu (${expectedHT.toFixed(2)} FCFA). Veuillez vérifier votre saisie.`,
-            variant: "default",
-          });
-        }
+    if (formData.isStockPurchase && stockCategoryId && formData.categoryId !== stockCategoryId) {
+      setFormData((prev) => ({ ...prev, categoryId: stockCategoryId }));
+    }
+  }, [formData.isStockPurchase, stockCategoryId]);
+
+  useEffect(() => {
+    if ((isRestaurantCategory || isEssenceCategory) && formData.vatApplicable) {
+      setFormData((prev) => ({ ...prev, vatApplicable: false }));
+    }
+  }, [isRestaurantCategory, isEssenceCategory]);
+
+  useEffect(() => {
+    if (formData.vatApplicable && amount > 0) {
+      setCalculatedHT(amount / 1.18);
+    } else {
+      setCalculatedHT(null);
+    }
+  }, [formData.vatApplicable, amount]);
+
+  useEffect(() => {
+    if (!formData.vatApplicable && isBrsCategory && amount > 0) {
+      const realTTC = amount / 0.95;
+      const brs = realTTC * 0.05;
+      setCalculatedBRS({ realTTC, brs });
+      if (!formData.hasBrs) {
+        setFormData((prev) => ({ ...prev, hasBrs: true }));
+      }
+    } else {
+      setCalculatedBRS(null);
+      if (formData.hasBrs && (!isBrsCategory || formData.vatApplicable)) {
+        setFormData((prev) => ({ ...prev, hasBrs: false }));
       }
     }
-  }, [formData.amountHT, formData.amountDisplayTTC, formData.vatApplicable, formData.category, toast]);
+  }, [formData.vatApplicable, isBrsCategory, amount]);
+
+  useEffect(() => {
+    const mustBeSupplierInvoice =
+      amount >= 500000 || selectedSupplier?.isRegularSupplier || formData.hasBrs;
+    const mustBeExpense = isRestaurantCategory || isEssenceCategory;
+
+    if (mustBeExpense) {
+      if (formData.invoiceType !== "expense") {
+        setFormData((prev) => ({ ...prev, invoiceType: "expense" }));
+      }
+      setForcedInvoiceType(true);
+    } else if (mustBeSupplierInvoice) {
+      if (formData.invoiceType !== "supplier_invoice") {
+        setFormData((prev) => ({ ...prev, invoiceType: "supplier_invoice" }));
+      }
+      setForcedInvoiceType(true);
+    } else {
+      setForcedInvoiceType(false);
+    }
+  }, [amount, selectedSupplier?.isRegularSupplier, formData.hasBrs, isRestaurantCategory, isEssenceCategory]);
 
   const canUseWaveBusiness = invoice?.userName === "Michael" || invoice?.userName === "Marine";
+  const isFatou = invoice?.userName === "Fatou";
 
-  // Calculate recent and top volume suppliers
   const recentSuppliers: Supplier[] = [];
   const topVolumeSuppliers = suppliers
     .filter((s) => s.total && parseFloat(s.total) > 0 && s.name !== "TOTAL ENERGIES")
@@ -159,16 +227,25 @@ export default function InvoiceEdit() {
     mutationFn: async () => {
       const formDataToSend = new FormData();
       formDataToSend.append("token", token || "");
-      if (formData.invoiceDate) formDataToSend.append("invoiceDate", formData.invoiceDate);
-      if (formData.supplierId) formDataToSend.append("supplierId", formData.supplierId);
-      if (formData.category) formDataToSend.append("category", formData.category);
-      if (formData.amountDisplayTTC) formDataToSend.append("amountDisplayTTC", formData.amountDisplayTTC);
-      formDataToSend.append("vatApplicable", formData.vatApplicable ? "true" : "false");
-      if (formData.amountHT) formDataToSend.append("amountHT", formData.amountHT);
-      if (formData.description) formDataToSend.append("description", formData.description);
-      if (formData.paymentType) formDataToSend.append("paymentType", formData.paymentType);
-      if (formData.projectId) formDataToSend.append("projectId", formData.projectId);
-      if (selectedFile) formDataToSend.append("file", selectedFile);
+      formDataToSend.append("invoiceDate", formData.invoiceDate);
+      formDataToSend.append("supplierId", formData.supplierId);
+      formDataToSend.append("categoryId", formData.categoryId);
+      formDataToSend.append("amountDisplayTTC", formData.amountDisplayTTC);
+      formDataToSend.append("isStockPurchase", formData.isStockPurchase.toString());
+      formDataToSend.append("vatApplicable", formData.vatApplicable.toString());
+      formDataToSend.append("hasBrs", formData.hasBrs.toString());
+      formDataToSend.append("invoiceType", formData.invoiceType);
+      if (formData.invoiceType === "supplier_invoice") {
+        formDataToSend.append("invoiceNumber", formData.invoiceNumber);
+      }
+      formDataToSend.append("description", formData.description);
+      formDataToSend.append("paymentType", formData.paymentType);
+      if (formData.projectId) {
+        formDataToSend.append("projectId", formData.projectId);
+      }
+      if (selectedFile) {
+        formDataToSend.append("file", selectedFile);
+      }
 
       const response = await fetch(`/api/invoices/${invoiceId}`, {
         method: "PUT",
@@ -183,7 +260,6 @@ export default function InvoiceEdit() {
       return response.json();
     },
     onSuccess: () => {
-      // Invalidate both the single invoice and the user's invoice list
       queryClient.invalidateQueries({ queryKey: ["/api/invoice", invoiceId] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       toast({
@@ -203,17 +279,36 @@ export default function InvoiceEdit() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validation: description is required
-    if (!formData.description || formData.description.trim() === "") {
-      toast({
-        title: "Erreur",
-        description: "La description est requise",
-        variant: "destructive",
-      });
+
+    if (!formData.invoiceDate) {
+      toast({ title: "Erreur", description: "La date est requise", variant: "destructive" });
       return;
     }
-    
+    if (!formData.supplierId) {
+      toast({ title: "Erreur", description: "Le fournisseur est requis", variant: "destructive" });
+      return;
+    }
+    if (!formData.categoryId) {
+      toast({ title: "Erreur", description: "La catégorie est requise", variant: "destructive" });
+      return;
+    }
+    if (!formData.amountDisplayTTC || parseFloat(formData.amountDisplayTTC) <= 0) {
+      toast({ title: "Erreur", description: "Le montant TTC est requis", variant: "destructive" });
+      return;
+    }
+    if (!formData.description || formData.description.trim() === "") {
+      toast({ title: "Erreur", description: "La description est requise", variant: "destructive" });
+      return;
+    }
+    if (!formData.paymentType) {
+      toast({ title: "Erreur", description: "Le type de règlement est requis", variant: "destructive" });
+      return;
+    }
+    if (formData.invoiceType === "supplier_invoice" && !formData.invoiceNumber) {
+      toast({ title: "Erreur", description: "Le numéro de facture est requis pour les Factures Fournisseur", variant: "destructive" });
+      return;
+    }
+
     updateInvoiceMutation.mutate();
   };
 
@@ -224,12 +319,12 @@ export default function InvoiceEdit() {
     }
   };
 
-  if (isLoadingInvoice || !invoice || Object.keys(formData).length === 0) {
+  if (isLoadingInvoice || !invoice) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-          <p className="mt-4 text-muted-foreground">Chargement...</p>
+        <div className="text-center space-y-4">
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+          <p className="text-muted-foreground">Chargement...</p>
         </div>
       </div>
     );
@@ -241,7 +336,9 @@ export default function InvoiceEdit() {
         <Card className="p-8 max-w-md w-full text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-destructive mb-2">Accès refusé</h1>
-          <p className="text-muted-foreground">Token d'accès invalide ou ne correspond pas au nom d'utilisateur.</p>
+          <p className="text-muted-foreground">
+            Token d'accès invalide ou ne correspond pas au nom d'utilisateur.
+          </p>
         </Card>
       </div>
     );
@@ -280,7 +377,7 @@ export default function InvoiceEdit() {
               <Input
                 id="invoiceDate"
                 type="date"
-                value={formData.invoiceDate || ""}
+                value={formData.invoiceDate}
                 onChange={(e) => setFormData({ ...formData, invoiceDate: e.target.value })}
                 className="h-14 text-base"
                 data-testid="input-invoice-date"
@@ -293,36 +390,54 @@ export default function InvoiceEdit() {
                 suppliers={suppliers}
                 recentSuppliers={recentSuppliers}
                 topVolumeSuppliers={topVolumeSuppliers}
-                value={formData.supplierId || ""}
-                onSelect={(supplierId: string) => setFormData({ ...formData, supplierId })}
+                value={formData.supplierId}
+                onSelect={(supplierId) => setFormData({ ...formData, supplierId })}
                 onCreateNew={async () => Promise.resolve()}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="category" className="text-base font-medium">
-                Catégorie *
+              <Label className="text-base font-medium">Achat pour le stock ?</Label>
+              <RadioGroup
+                value={formData.isStockPurchase ? "true" : "false"}
+                onValueChange={(value) => setFormData({ ...formData, isStockPurchase: value === "true" })}
+                className="flex gap-6"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="true" id="stock-yes" data-testid="radio-stock-yes" />
+                  <Label htmlFor="stock-yes" className="cursor-pointer font-normal">
+                    Oui
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="false" id="stock-no" data-testid="radio-stock-no" />
+                  <Label htmlFor="stock-no" className="cursor-pointer font-normal">
+                    Non
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="categoryId" className="text-base font-medium">
+                Catégorie comptable *
               </Label>
               <Select
-                value={formData.category || ""}
-                onValueChange={(value) => setFormData({ ...formData, category: value })}
+                value={formData.categoryId}
+                onValueChange={(value) => setFormData({ ...formData, categoryId: value })}
+                disabled={formData.isStockPurchase}
               >
-                <SelectTrigger id="category" className="h-14 text-base" data-testid="select-category">
+                <SelectTrigger id="categoryId" className="h-14 text-base" data-testid="select-category">
                   <SelectValue placeholder="Sélectionner une catégorie..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIES.map((cat) => (
-                    <SelectItem key={cat} value={cat} data-testid={`option-category-${cat}`}>
-                      {cat}
+                  {sortedCategories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id.toString()} data-testid={`option-category-${cat.id}`}>
+                      {cat.appName}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {formData.category === "Restauration, boissons et petits achats alimentaires" && (
-                <p className="text-sm text-muted-foreground italic mt-1">
-                  ℹ️ La TVA n'est pas applicable sur les frais de restaurants
-                </p>
-              )}
             </div>
 
             <div className="space-y-2">
@@ -332,17 +447,17 @@ export default function InvoiceEdit() {
               <Input
                 id="amountDisplayTTC"
                 type="number"
-                step="0.01"
-                value={formData.amountDisplayTTC || ""}
+                step="1"
+                value={formData.amountDisplayTTC}
                 onChange={(e) => setFormData({ ...formData, amountDisplayTTC: e.target.value })}
                 className="h-14 text-base"
                 data-testid="input-amount-ttc"
               />
             </div>
 
-            {formData.category !== "Restauration, boissons et petits achats alimentaires" && (
-              <div className="space-y-4">
-                <Label className="text-base font-medium">TVA applicable</Label>
+            {!isRestaurantCategory && !isEssenceCategory && (
+              <div className="space-y-2">
+                <Label className="text-base font-medium">Facture avec TVA (18%) ?</Label>
                 <RadioGroup
                   value={formData.vatApplicable ? "true" : "false"}
                   onValueChange={(value) => setFormData({ ...formData, vatApplicable: value === "true" })}
@@ -350,29 +465,93 @@ export default function InvoiceEdit() {
                 >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="true" id="vat-yes" data-testid="radio-vat-yes" />
-                    <Label htmlFor="vat-yes" className="cursor-pointer font-normal">Oui</Label>
+                    <Label htmlFor="vat-yes" className="cursor-pointer font-normal">
+                      Oui
+                    </Label>
                   </div>
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="false" id="vat-no" data-testid="radio-vat-no" />
-                    <Label htmlFor="vat-no" className="cursor-pointer font-normal">Non</Label>
+                    <Label htmlFor="vat-no" className="cursor-pointer font-normal">
+                      Non
+                    </Label>
                   </div>
                 </RadioGroup>
               </div>
             )}
 
-            {formData.vatApplicable && formData.category !== "Restauration, boissons et petits achats alimentaires" && (
+            {calculatedHT !== null && (
+              <div className="bg-muted/50 rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Montant HT (calculé)</p>
+                <p className="text-lg font-semibold">{calculatedHT.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA</p>
+              </div>
+            )}
+
+            {calculatedBRS && (
+              <div className="bg-gray-100 border border-slate-400 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <Info className="h-5 w-5 text-gray-500 mt-0.5 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-medium text-gray-700">
+                      Retenue BRS : {calculatedBRS.brs.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA sur{" "}
+                      {calculatedBRS.realTTC.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Le montant réel TTC est de {calculatedBRS.realTTC.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA.
+                      Une retenue de 5% ({calculatedBRS.brs.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA) sera appliquée.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="text-base font-medium">Type de document *</Label>
+              <RadioGroup
+                value={formData.invoiceType}
+                onValueChange={(value) => setFormData({ ...formData, invoiceType: value as "expense" | "supplier_invoice" })}
+                className="flex gap-6"
+                disabled={forcedInvoiceType}
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="expense" id="type-expense" data-testid="radio-type-expense" disabled={forcedInvoiceType && formData.invoiceType !== "expense"} />
+                  <Label htmlFor="type-expense" className="cursor-pointer font-normal">
+                    Dépense
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="supplier_invoice" id="type-supplier" data-testid="radio-type-supplier" disabled={forcedInvoiceType && formData.invoiceType !== "supplier_invoice"} />
+                  <Label htmlFor="type-supplier" className="cursor-pointer font-normal">
+                    Facture Fournisseur
+                  </Label>
+                </div>
+              </RadioGroup>
+              {forcedInvoiceType && (
+                <p className="text-xs text-muted-foreground italic">
+                  {amount >= 500000
+                    ? "Montant >= 500 000 FCFA : Facture Fournisseur obligatoire"
+                    : selectedSupplier?.isRegularSupplier
+                    ? "Fournisseur régulier : Facture Fournisseur obligatoire"
+                    : formData.hasBrs
+                    ? "BRS applicable : Facture Fournisseur obligatoire"
+                    : isRestaurantCategory || isEssenceCategory
+                    ? "Catégorie Restaurant/Essence : Dépense obligatoire"
+                    : ""}
+                </p>
+              )}
+            </div>
+
+            {formData.invoiceType === "supplier_invoice" && (
               <div className="space-y-2">
-                <Label htmlFor="amountHT" className="text-base font-medium">
-                  Montant HT (FCFA) *
+                <Label htmlFor="invoiceNumber" className="text-base font-medium">
+                  Numéro de facture *
                 </Label>
                 <Input
-                  id="amountHT"
-                  type="number"
-                  step="0.01"
-                  value={formData.amountHT || ""}
-                  onChange={(e) => setFormData({ ...formData, amountHT: e.target.value })}
+                  id="invoiceNumber"
+                  value={formData.invoiceNumber}
+                  onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                  placeholder="Entrez le numéro de facture"
                   className="h-14 text-base"
-                  data-testid="input-amount-ht"
+                  data-testid="input-invoice-number"
                 />
               </div>
             )}
@@ -383,7 +562,7 @@ export default function InvoiceEdit() {
               </Label>
               <Textarea
                 id="description"
-                value={formData.description || ""}
+                value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="min-h-24 text-base resize-none"
                 data-testid="textarea-description"
@@ -395,25 +574,30 @@ export default function InvoiceEdit() {
                 Type de règlement *
               </Label>
               <Select
-                value={formData.paymentType || ""}
+                value={formData.paymentType}
                 onValueChange={(value) => setFormData({ ...formData, paymentType: value })}
               >
                 <SelectTrigger id="paymentType" className="h-14 text-base" data-testid="select-payment-type">
                   <SelectValue placeholder="Sélectionner un type de règlement..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {canUseWaveBusiness ? (
+                  {isFatou ? (
                     <>
-                      <SelectItem value="Wave Business" data-testid="option-payment-WaveBusiness">Wave Business</SelectItem>
-                      <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
-                      <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
+                      <SelectItem value="Wave Business Caisse">Wave Business Caisse</SelectItem>
+                      <SelectItem value="Espèces">Espèces</SelectItem>
+                    </>
+                  ) : canUseWaveBusiness ? (
+                    <>
+                      <SelectItem value="Wave Business">Wave Business</SelectItem>
+                      <SelectItem value="Espèces">Espèces</SelectItem>
+                      <SelectItem value="Perso remboursé par Wave Business">
                         Perso remboursé par Wave Business
                       </SelectItem>
                     </>
                   ) : (
                     <>
-                      <SelectItem value="Wave" data-testid="option-payment-Wave">Wave</SelectItem>
-                      <SelectItem value="Espèces" data-testid="option-payment-Espèces">Espèces</SelectItem>
+                      <SelectItem value="Wave Business">Wave Business</SelectItem>
+                      <SelectItem value="Espèces">Espèces</SelectItem>
                     </>
                   )}
                 </SelectContent>
@@ -422,13 +606,14 @@ export default function InvoiceEdit() {
 
             <ProjectSelect
               projects={projects}
-              value={formData.projectId || ""}
+              value={formData.projectId}
               onChange={(value) => setFormData({ ...formData, projectId: value })}
             />
 
             <div className="space-y-2">
               <Label htmlFor="file-upload" className="text-base font-medium">
-                Remplacer la facture <span className="text-muted-foreground text-sm">(optionnel)</span>
+                Remplacer la facture{" "}
+                <span className="text-muted-foreground text-sm">(optionnel)</span>
               </Label>
               <div className="text-sm text-muted-foreground mb-2">
                 Fichier actuel : {invoice.fileName}
@@ -437,15 +622,12 @@ export default function InvoiceEdit() {
                 id="file-upload"
                 type="file"
                 accept="image/*,application/pdf"
-                capture="environment"
                 onChange={handleFileChange}
                 className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
                 data-testid="input-file-upload"
               />
               {selectedFile && (
-                <p className="text-sm text-primary mt-2">
-                  Nouveau fichier : {selectedFile.name}
-                </p>
+                <p className="text-sm text-primary mt-2">Nouveau fichier : {selectedFile.name}</p>
               )}
             </div>
 
@@ -455,7 +637,9 @@ export default function InvoiceEdit() {
               disabled={updateInvoiceMutation.isPending}
               data-testid="button-submit-edit"
             >
-              {updateInvoiceMutation.isPending ? "Modification en cours..." : "Enregistrer les modifications"}
+              {updateInvoiceMutation.isPending
+                ? "Modification en cours..."
+                : "Enregistrer les modifications"}
             </Button>
           </form>
         </Card>
