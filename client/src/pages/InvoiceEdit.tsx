@@ -19,7 +19,14 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { SupplierSearch } from "@/components/SupplierSearch";
 import { ProjectSelect } from "@/components/ProjectSelect";
-import type { Supplier, Project, Category, UserToken } from "@shared/schema";
+import type { Project, Category, UserToken } from "@shared/schema";
+
+interface LocalSupplier {
+  id: string;
+  name: string;
+  total?: string;
+  isRegularSupplier?: boolean | null;
+}
 
 interface Invoice {
   id: string;
@@ -93,9 +100,14 @@ export default function InvoiceEdit() {
     queryKey: ["/api/invoice", invoiceId],
   });
 
-  const { data: suppliers = [] } = useQuery<Supplier[]>({
+  const { data: rawSuppliers = [] } = useQuery<LocalSupplier[]>({
     queryKey: ["/api/suppliers"],
   });
+
+  const suppliers: LocalSupplier[] = rawSuppliers.map((s) => ({
+    ...s,
+    total: s.total ?? undefined,
+  }));
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
