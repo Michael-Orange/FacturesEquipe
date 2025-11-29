@@ -339,13 +339,14 @@ export function InvoiceForm({
       };
       await onSubmit(submitData);
       setIsSuccess(true);
+      const defaultCategoryItem = categories?.find((c) => c.id === 13);
       form.reset({
         invoiceDate: new Date().toISOString().split("T")[0],
         supplierId: "",
         amountDisplayTTC: "",
         isStockPurchase: false,
-        categoryId: "",
-        category: "",
+        categoryId: "13",
+        category: defaultCategoryItem?.appName || "",
         vatApplicable: false,
         hasBrs: false,
         invoiceType: "expense",
@@ -358,10 +359,10 @@ export function InvoiceForm({
       });
       setSelectedFile(null);
       setSelectedSupplier(null);
-      setSelectedCategory(null);
+      setSelectedCategory(defaultCategoryItem || null);
       setAmountHT(null);
       setAmountRealTTC(null);
-      setDefaultCategorySet(false);
+      setDefaultCategorySet(true);
 
       setTimeout(() => setIsSuccess(false), 5000);
     } catch (error) {
@@ -764,7 +765,7 @@ export function InvoiceForm({
         type="submit"
         size="lg"
         className="w-full h-14 text-base font-semibold"
-        disabled={isSubmitting}
+        disabled={isSubmitting || !areEssentialFieldsFilled}
         data-testid="button-submit-invoice"
       >
         {isSubmitting ? "Soumission en cours..." : "Soumettre la facture"}
