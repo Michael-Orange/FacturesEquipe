@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Download, Archive, Lock, Database } from "lucide-react";
+import { Download, Archive, Lock, Database, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +35,14 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
   const [isExportingAxonautFatou, setIsExportingAxonautFatou] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const { toast } = useToast();
+  
+  // Zoho export states
+  const [zohoDateStart, setZohoDateStart] = useState<string>("");
+  const [zohoDateEnd, setZohoDateEnd] = useState<string>("");
+  const [isExportingZohoMichael, setIsExportingZohoMichael] = useState(false);
+  const [isExportingZohoMarine, setIsExportingZohoMarine] = useState(false);
+  const [isExportingZohoFatou, setIsExportingZohoFatou] = useState(false);
+  const [isExportingZohoAll, setIsExportingZohoAll] = useState(false);
 
   const handleExportCSV = async () => {
     setIsExporting(true);
@@ -127,6 +137,72 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
       });
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  // Zoho export handler
+  const handleExportZoho = async (user: "michael" | "marine" | "fatou" | "all") => {
+    const setLoading = {
+      michael: setIsExportingZohoMichael,
+      marine: setIsExportingZohoMarine,
+      fatou: setIsExportingZohoFatou,
+      all: setIsExportingZohoAll,
+    }[user];
+    
+    setLoading(true);
+    try {
+      // Build query params
+      const params = new URLSearchParams();
+      params.append("user", user);
+      if (zohoDateStart) params.append("date_start", zohoDateStart);
+      if (zohoDateEnd) params.append("date_end", zohoDateEnd);
+      
+      const response = await fetch(`/api/admin/export-zoho-expenses?${params.toString()}`, {
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("adminToken")}`,
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error("Export failed");
+      }
+      
+      // Get the count from header
+      const count = response.headers.get("X-Export-Count") || "0";
+      
+      // Download the file
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      
+      // Get filename from Content-Disposition header or generate one
+      const disposition = response.headers.get("Content-Disposition");
+      let filename = `Depenses_Zoho_${user}.csv`;
+      if (disposition) {
+        const match = disposition.match(/filename="(.+)"/);
+        if (match) filename = match[1];
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      
+      const userLabel = user === "all" ? "toutes" : user.charAt(0).toUpperCase() + user.slice(1);
+      toast({
+        title: "Export Zoho réussi",
+        description: `${count} dépenses exportées pour ${userLabel}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'exporter les données Zoho",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -233,6 +309,88 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
         </Card>
       </div>
 
+      {/* Zoho Exports Section - Full Width */}
+      <Card className="hover-elevate">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-blue-500/10 p-3">
+              <Calendar className="h-6 w-6 text-blue-500" />
+            </div>
+            <div>
+              <CardTitle>Export Zoho Books - Dépenses</CardTitle>
+              <CardDescription className="mt-1">
+                Exporter les dépenses au format Zoho Books (uniquement les dépenses, pas les factures fournisseur)
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="zoho-date-start">Date de début</Label>
+              <Input
+                id="zoho-date-start"
+                type="date"
+                value={zohoDateStart}
+                onChange={(e) => setZohoDateStart(e.target.value)}
+                data-testid="input-zoho-date-start"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="zoho-date-end">Date de fin</Label>
+              <Input
+                id="zoho-date-end"
+                type="date"
+                value={zohoDateEnd}
+                onChange={(e) => setZohoDateEnd(e.target.value)}
+                data-testid="input-zoho-date-end"
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <Button
+              onClick={() => handleExportZoho("michael")}
+              disabled={isExportingZohoMichael}
+              variant="secondary"
+              className="h-12"
+              data-testid="button-export-zoho-michael"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingZohoMichael ? "Export..." : "Michael"}
+            </Button>
+            <Button
+              onClick={() => handleExportZoho("marine")}
+              disabled={isExportingZohoMarine}
+              variant="secondary"
+              className="h-12"
+              data-testid="button-export-zoho-marine"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingZohoMarine ? "Export..." : "Marine"}
+            </Button>
+            <Button
+              onClick={() => handleExportZoho("fatou")}
+              disabled={isExportingZohoFatou}
+              variant="secondary"
+              className="h-12"
+              data-testid="button-export-zoho-fatou"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingZohoFatou ? "Export..." : "Fatou"}
+            </Button>
+            <Button
+              onClick={() => handleExportZoho("all")}
+              disabled={isExportingZohoAll}
+              className="h-12"
+              data-testid="button-export-zoho-all"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              {isExportingZohoAll ? "Export..." : "Toutes"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="bg-muted/30">
         <CardHeader>
           <CardTitle className="text-lg">Informations</CardTitle>
@@ -249,6 +407,10 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
           <div className="flex justify-between py-2 border-b">
             <span className="text-muted-foreground">Export Axonaut</span>
             <span className="font-medium">Export formaté pour import dans Axonaut</span>
+          </div>
+          <div className="flex justify-between py-2 border-b">
+            <span className="text-muted-foreground">Export Zoho</span>
+            <span className="font-medium">Export des dépenses au format Zoho Books (27 colonnes)</span>
           </div>
           <div className="flex justify-between py-2">
             <span className="text-muted-foreground">Archivage</span>
