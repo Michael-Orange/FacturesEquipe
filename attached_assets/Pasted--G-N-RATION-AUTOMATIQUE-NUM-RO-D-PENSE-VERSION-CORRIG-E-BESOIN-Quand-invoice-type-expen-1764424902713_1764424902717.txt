@@ -1,0 +1,270 @@
+# GÉNÉRATION AUTOMATIQUE NUMÉRO DÉPENSE - VERSION CORRIGÉE
+
+## BESOIN
+Quand invoice_type = 'expense' (Dépense), générer automatiquement un numéro au format : DEP-UU-YYMM-XXX
+
+## FORMAT
+**DEP-UU-YYMM-XXX**
+- DEP = préfixe fixe
+- UU = 2 premières lettres du nom utilisateur en majuscules
+- YYMM = année sur 2 chiffres + mois sur 2 chiffres
+- XXX = séquence sur 3 chiffres (001, 002, etc.)
+
+**Exemples :**
+- Marine, novembre 2025, 2ème dépense : `DEP-MA-2511-002`
+- Michael, décembre 2025, 1ère dépense : `DEP-MI-2512-001`
+- Fatou, janvier 2026, 15ème dépense : `DEP-FA-2601-015`
+
+## RÈGLE DE SÉQUENCE
+La séquence repart à 001 pour chaque utilisateur à chaque nouveau mois.
+
+## CORRECTION IMPORTANTE : Colonne users
+
+**Utiliser la colonne `name` de la table users** (pas first_name).
+
+Extraire les 2 premières lettres de `users.name` en majuscules.
+
+Mapping attendu :
+- "Michael" → MI
+- "Marine" → MA
+- "Fatou" → FA
+
+## LOGIQUE BACKEND
+
+### Fonction helper : generateExpenseNumber
+
+**Entrées :** userId, invoiceDate
+**Sortie :** Numéro formaté DEP-UU-YYMM-XXX
+
+**Étapes :**
+1. Chercher le nom de l'utilisateur dans la table users (colonne **name**)
+2. Extraire les 2 premières lettres du nom en majuscules
+3. Normaliser pour enlever les accents (François → FR)
+4. Extraire YYMM de la date de la facture (invoiceDate, pas date système)
+5. Construire le préfixe : DEP-{2lettres}-{YYMM}-
+6. Chercher la dernière dépense de cet utilisateur pour ce mois
+7. Si trouvée : extraire les 3 derniers chiffres, incrémenter de 1
+8. Si non trouvée : commencer à 001
+9. Formater avec padding : 001, 002, etc.
+10. Retourner le numéro complet
+
+### Route POST /api/invoices (création)
+
+**Si invoice_type = 'expense' :**
+- Appeler generateExpenseNumber(user_id, date)
+- Assigner le résultat à invoice_number
+
+**Si invoice_type = 'supplier_invoice' :**
+- Utiliser le invoice_number fourni par l'utilisateur
+- Valider qu'il est non vide
+- Retourner erreur 400 si vide : "Numéro de facture obligatoire pour Facture Fournisseur"
+
+**IMPORTANT :** Même si le Type "Facture Fournisseur" a été **forcé automatiquement** (BRS, montant ≥500k, fournisseur régulier), l'utilisateur doit saisir un numéro manuellement. Pas de génération DEP dans ce cas.
+
+### Route PUT /api/invoices/:id (édition)
+
+**Récupérer la facture existante en BDD.**
+
+**CAS 1 : Pas de changement de type**
+
+**Si invoice_type reste 'expense' :**
+- Garder l'invoice_number existant (ne PAS régénérer même si date change)
+
+**Si invoice_type reste 'supplier_invoice' :**
+- Utiliser le nouveau invoice_number fourni par l'utilisateur (modifiable)
+
+**CAS 2 : Changement de type**
+
+**Si ancien type = 'expense' ET nouveau type = 'supplier_invoice' :**
+- L'utilisateur doit fournir un nouveau invoice_number (manuel)
+- Valider qu'il est non vide
+- Remplacer l'ancien numéro DEP par le nouveau numéro manuel
+- Retourner erreur 400 si vide
+
+**Si ancien type = 'supplier_invoice' ET nouveau type = 'expense' :**
+- Appeler generateExpenseNumber(user_id, date)
+- Remplacer l'ancien numéro manuel par le nouveau numéro DEP généré
+
+## LOGIQUE FRONTEND
+
+### Formulaire création
+
+**Si Type = "Dépense" :**
+- Masquer complètement le champ "Numéro de facture"
+- Ne PAS envoyer invoice_number au backend
+
+**Si Type = "Facture Fournisseur" (choisi ou forcé) :**
+- Afficher le champ "Numéro de facture"
+- Input texte obligatoire
+- Placeholder : "Ex: FAC-2024-001"
+- Même si le Type a été forcé automatiquement (BRS, montant ≥500k), le champ reste obligatoire
+
+### Formulaire édition
+
+**Si Type = "Dépense" :**
+- Afficher le numéro existant en lecture seule (disabled)
+- Label : "Numéro de dépense"
+
+**Si Type = "Facture Fournisseur" :**
+- Afficher le champ modifiable
+- Label : "Numéro de facture"
+
+### Détection changement de type en édition
+
+**Stocker le type d'origine** au chargement du formulaire.
+
+**Si changement détecté :**
+
+**De Dépense → Facture Fournisseur :**
+- Vider le champ numéro
+- Afficher le champ en mode éditable
+- Message warning : "⚠️ Veuillez saisir un numéro de facture fournisseur"
+
+**De Facture Fournisseur → Dépense :**
+- Masquer le champ numéro
+- Message warning : "⚠️ Un nouveau numéro de dépense sera généré automatiquement"
+
+## COMPATIBILITÉ PHASE 2
+
+**Rappel logique Phase 2 :** Le Type "Facture Fournisseur" peut être forcé automatiquement si :
+- Montant ≥ 500 000 FCFA
+- Fournisseur régulier (is_regular_supplier = true)
+- BRS applicable (has_brs = true)
+
+**IMPORTANT :** Dans tous ces cas, l'utilisateur doit **quand même saisir un numéro de facture manuellement**.
+
+Pas de génération DEP automatique pour ces factures forcées.
+
+Le champ "Numéro de facture" reste :
+- Affiché
+- Obligatoire
+- À saisir manuellement
+
+## RÈGLES DE GESTION FINALES
+
+### Création
+- Type "Dépense" : Numéro généré automatiquement, champ masqué
+- Type "Facture Fournisseur" (choisi ou forcé) : Numéro saisi manuellement, champ obligatoire
+
+### Édition sans changement de type
+- Dépense : Numéro affiché en lecture seule
+- Facture Fournisseur : Numéro modifiable
+
+### Édition avec changement de type
+- Dépense → Facture Fournisseur : Demander nouveau numéro manuel
+- Facture Fournisseur → Dépense : Générer nouveau numéro DEP automatiquement
+
+### Modification de date
+- Dépense : Numéro reste inchangé (figé à la création)
+- Facture Fournisseur : Numéro reste celui saisi par l'utilisateur
+
+### Suppression
+- Séquence continue sans réutilisation
+
+### Concurrence
+- Pas de collision (séquence par utilisateur)
+
+## UX - SIMPLICITÉ MAXIMALE
+
+**En création type Dépense :**
+- Champ numéro masqué
+- Aucun message "sera généré automatiquement"
+
+**En création type Facture Fournisseur :**
+- Champ numéro affiché normalement (même si Type forcé)
+- Input obligatoire
+
+**En édition type Dépense :**
+- Numéro affiché en lecture seule
+
+**Seuls messages à afficher :**
+- Changement de type : warning
+- Validation : erreur si numéro manquant
+
+## TESTS À EFFECTUER (PROFIL MICHAEL UNIQUEMENT)
+
+### Test 1 : Création dépense
+1. Créer Type "Dépense", montant 100 000 FCFA
+2. Vérifier champ "Numéro" masqué
+3. Soumettre → vérifier numéro = `DEP-MI-2411-001`
+
+### Test 2 : Création 2ème dépense
+1. Créer 2ème dépense novembre
+2. Vérifier numéro = `DEP-MI-2411-002`
+
+### Test 3 : Création facture forcée (BRS)
+1. Créer facture Prestation de services, TVA = Non, montant 300 000 FCFA
+2. Vérifier Type forcé "Facture Fournisseur" (Phase 2)
+3. **Vérifier champ "Numéro de facture" AFFICHÉ et OBLIGATOIRE**
+4. Saisir "PRES-2024-001"
+5. Soumettre → vérifier numéro = PRES-2024-001 (pas DEP)
+
+### Test 4 : Création facture forcée (montant ≥500k)
+1. Créer facture montant 600 000 FCFA
+2. Vérifier Type forcé "Facture Fournisseur"
+3. **Vérifier champ numéro AFFICHÉ et OBLIGATOIRE**
+4. Saisir "FAC-2024-050"
+5. Soumettre → vérifier numéro = FAC-2024-050
+
+### Test 5 : Édition date dépense
+1. Modifier dépense DEP-MI-2411-001
+2. Changer date
+3. Vérifier numéro reste DEP-MI-2411-001
+
+### Test 6 : Changement type Dépense → FF
+1. Modifier dépense DEP-MI-2411-002
+2. Changer Type → "Facture Fournisseur"
+3. Saisir "FAC-2024-001"
+4. Sauvegarder → vérifier numéro = FAC-2024-001
+
+### Test 7 : Changement type FF → Dépense
+1. Modifier Facture Fournisseur "FAC-2024-002"
+2. Changer Type → "Dépense"
+3. Sauvegarder → vérifier nouveau numéro DEP généré
+
+### Test 8 : Suppression et séquence
+1. Supprimer DEP-MI-2411-002
+2. Créer nouvelle dépense → vérifier numéro = DEP-MI-2411-004
+
+### Test 9 : Validation FF sans numéro
+1. Créer Facture Fournisseur
+2. Laisser champ vide → vérifier erreur
+
+### Test 10 : Nouveau mois
+1. Créer dépense décembre 2024
+2. Vérifier numéro = `DEP-MI-2412-001`
+
+## POINTS D'ATTENTION
+
+1. **Colonne users.name** - Pas first_name
+
+2. **Compatibilité Phase 2** - Factures forcées restent avec numéro manuel
+
+3. **Date de référence** - invoiceDate (saisie utilisateur)
+
+4. **UX minimaliste** - Pas de messages inutiles
+
+5. **Validation backend** - Toujours recalculer/vérifier
+
+6. **Séquence par utilisateur** - Indépendante entre utilisateurs
+
+## COMPLEXITÉ ESTIMÉE
+
+**5 tâches principales :**
+1. Fonction generateExpenseNumber backend
+2. Adapter POST /api/invoices
+3. Adapter PUT /api/invoices (avec gestion changement type)
+4. Adapter InvoiceForm (masquer/afficher champ)
+5. Tests E2E
+
+**Estimation : ~2-3h de développement**
+
+## RÉSULTAT ATTENDU
+
+- ✅ Dépenses avec numéros auto : DEP-UU-YYMM-XXX
+- ✅ Factures Fournisseurs (choisies ou forcées) avec numéros manuels
+- ✅ Champ masqué pour dépenses en création
+- ✅ Numéro figé en édition dépense
+- ✅ Changement type géré intelligemment
+- ✅ Séquence continue
+- ✅ Compatible Phase 2 (forcing Type)
