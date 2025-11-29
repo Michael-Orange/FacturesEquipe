@@ -1,0 +1,84 @@
+# SIMPLIFICATION EXPORT NOUVEAUX FOURNISSEURS BRS - 5ÈME BOUTON
+
+## OBJECTIF
+Transformer l'export "Nouveaux Fournisseurs BRS" en un 5ème bouton dans la section "Export Zoho Books - Factures Fournisseurs" au lieu d'une sous-section séparée.
+
+## MODIFICATIONS À EFFECTUER
+
+### Frontend : Réorganisation interface
+
+**AVANT (actuel) :**
+Export Zoho Books - Factures Fournisseurs
+├─ Date de début / Date de fin
+├─ [4 boutons : FF Michael, FF Marine, FF Fatou, Toutes FF]
+└─ Rapport Nouveaux Fournisseurs BRS
+├─ Du * / Au * (date pickers séparés)
+└─ [Bouton Export Nouveaux Fournisseurs BRS]
+
+**APRÈS (nouveau) :**
+Export Zoho Books - Factures Fournisseurs
+├─ Date de début / Date de fin (partagés par tous les boutons)
+├─ [FF Michael]
+├─ [FF Marine]
+├─ [FF Fatou]
+├─ [Toutes FF]
+└─ [Rapport Nouveaux Fournisseurs BRS] (5ème bouton)
+
+### Actions concrètes
+
+**1. Supprimer la sous-section séparée**
+- Supprimer titre "Rapport Nouveaux Fournisseurs BRS"
+- Supprimer les 2 date pickers "Du *" et "Au *" dédiés
+- Supprimer le message info dédié
+
+**2. Ajouter 5ème bouton**
+- Ajouter un bouton "Rapport Nouveaux Fournisseurs BRS" après le bouton "Toutes FF"
+- Même style que les 4 autres boutons (gris clair)
+- Icône téléchargement identique
+
+**3. Réutiliser les date pickers existants**
+- Le bouton "Rapport Nouveaux Fournisseurs BRS" utilise les mêmes date pickers que les 4 autres boutons (Date de début / Date de fin)
+- Validation : dates obligatoires pour ce bouton uniquement (pas pour les 4 autres)
+
+**4. Message info global**
+Modifier le message info existant :
+ℹ️ Format compatible Zoho Bills. Inclut uniquement les Factures Fournisseurs.
+Le rapport BRS liste les nouveaux fournisseurs avec retenue à la source 5%.
+
+### Backend : Aucune modification
+
+La route `/api/admin/export-nouveaux-fournisseurs-brs` reste identique.
+
+### Logique frontend bouton BRS
+
+**Au clic "Rapport Nouveaux Fournisseurs BRS" :**
+
+1. **Validation dates obligatoires** (spécifique à ce bouton) :
+   - Si date_start vide → erreur "Date de début obligatoire pour le rapport BRS"
+   - Si date_end vide → erreur "Date de fin obligatoire pour le rapport BRS"
+   - Si date_start > date_end → erreur "Date de début doit être avant date de fin"
+
+2. **Si validation OK :**
+   - Appeler `/api/admin/export-nouveaux-fournisseurs-brs?date_start=...&date_end=...`
+   - Télécharger CSV
+   - Message succès
+
+**Note :** Les 4 autres boutons (FF Michael, Marine, Fatou, Toutes) peuvent fonctionner avec ou sans dates (optionnel), mais le 5ème bouton (Rapport BRS) exige les dates.
+
+### Layout visuel
+
+**Disposition boutons :**
+- Grille 2x2 pour les 4 premiers boutons (ou liste verticale)
+- 5ème bouton en dessous, pleine largeur ou aligné avec les autres
+
+**Exemple layout :**
+┌────────────────┬────────────────┐
+│  FF Michael    │  FF Marine     │
+├────────────────┼────────────────┤
+│  FF Fatou      │  Toutes FF     │
+└────────────────┴────────────────┘
+┌──────────────────────────────────┐
+│ Rapport Nouveaux Fournisseurs BRS│
+└──────────────────────────────────┘
+
+Ou layout vertical simple (tous alignés).
