@@ -138,11 +138,13 @@ export default function InvoiceEdit() {
   const [calculatedHT, setCalculatedHT] = useState<number | null>(null);
   const [calculatedBRS, setCalculatedBRS] = useState<{ realTTC: number; brs: number } | null>(null);
   const [forcedInvoiceType, setForcedInvoiceType] = useState(false);
+  const [originalInvoiceType, setOriginalInvoiceType] = useState<"expense" | "supplier_invoice" | null>(null);
   const initRef = useRef(false);
 
   useEffect(() => {
     if (invoice && !initRef.current) {
       initRef.current = true;
+      const invoiceTypeValue = (invoice.invoiceType as "expense" | "supplier_invoice") || "expense";
       setFormData({
         invoiceDate: invoice.invoiceDate.split("T")[0],
         supplierId: invoice.supplierId,
@@ -151,12 +153,13 @@ export default function InvoiceEdit() {
         isStockPurchase: invoice.isStockPurchase || false,
         vatApplicable: invoice.vatApplicable,
         hasBrs: invoice.hasBrs || false,
-        invoiceType: (invoice.invoiceType as "expense" | "supplier_invoice") || "expense",
+        invoiceType: invoiceTypeValue,
         invoiceNumber: invoice.invoiceNumber || "",
         description: invoice.description || "",
         paymentType: invoice.paymentType,
         projectId: invoice.projectId || "",
       });
+      setOriginalInvoiceType(invoiceTypeValue);
     }
   }, [invoice]);
 
@@ -226,10 +229,20 @@ export default function InvoiceEdit() {
     }
   }, [amount, selectedSupplier?.isRegularSupplier, formData.hasBrs, isRestaurantCategory, isEssenceCategory]);
 
+  // Clear invoice number when switching from expense to supplier_invoice
+  useEffect(() => {
+    if (originalInvoiceType === null) return; // Skip during init
+    
+    if (originalInvoiceType === "expense" && formData.invoiceType === "supplier_invoice") {
+      // Switching from expense to supplier_invoice: clear the DEP number so user must enter new one
+      setFormData((prev) => ({ ...prev, invoiceNumber: "" }));
+    }
+  }, [formData.invoiceType, originalInvoiceType]);
+
   const canUseWaveBusiness = invoice?.userName === "Michael" || invoice?.userName === "Marine";
   const isFatou = invoice?.userName === "Fatou";
 
-  const recentSuppliers: Supplier[] = [];
+  const recentSuppliers: LocalSupplier[] = [];
   const topVolumeSuppliers = suppliers
     .filter((s) => s.total && parseFloat(s.total) > 0 && s.name !== "TOTAL ENERGIES")
     .sort((a, b) => parseFloat(b.total || "0") - parseFloat(a.total || "0"))
@@ -552,6 +565,25 @@ export default function InvoiceEdit() {
               )}
             </div>
 
+            {/* Invoice Number Field - Different behavior for expense vs supplier_invoice */}
+            {formData.invoiceType === "expense" && formData.invoiceNumber && formData.invoiceNumber.startsWith("DEP-") && (
+              <div className="space-y-2">
+                <Label htmlFor="invoiceNumber" className="text-base font-medium">
+                  Numéro de dépense (automatique)
+                </Label>
+                <Input
+                  id="invoiceNumber"
+                  value={formData.invoiceNumber}
+                  disabled
+                  className="h-14 text-base bg-muted cursor-not-allowed"
+                  data-testid="input-invoice-number-readonly"
+                />
+                <p className="text-xs text-muted-foreground italic">
+                  Ce numéro est généré automatiquement et ne peut pas être modifié
+                </p>
+              </div>
+            )}
+            
             {formData.invoiceType === "supplier_invoice" && (
               <div className="space-y-2">
                 <Label htmlFor="invoiceNumber" className="text-base font-medium">
@@ -565,6 +597,26 @@ export default function InvoiceEdit() {
                   className="h-14 text-base"
                   data-testid="input-invoice-number"
                 />
+                {/* Warning when changing from expense to supplier_invoice */}
+                {originalInvoiceType === "expense" && formData.invoiceType === "supplier_invoice" && (
+                  <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-md text-sm text-amber-700 dark:text-amber-300">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    <span>
+                      Changement de type : veuillez saisir un numéro de facture fournisseur. 
+                      L'ancien numéro DEP sera remplacé.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Warning when changing from supplier_invoice to expense */}
+            {originalInvoiceType === "supplier_invoice" && formData.invoiceType === "expense" && (
+              <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950 rounded-md text-sm text-blue-700 dark:text-blue-300">
+                <Info className="h-4 w-4 flex-shrink-0" />
+                <span>
+                  Changement vers Dépense : un nouveau numéro DEP sera généré automatiquement.
+                </span>
               </div>
             )}
 
