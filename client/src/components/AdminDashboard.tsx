@@ -52,9 +52,7 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
   const [isExportingBillsFatou, setIsExportingBillsFatou] = useState(false);
   const [isExportingBillsAll, setIsExportingBillsAll] = useState(false);
   
-  // New BRS Suppliers export states
-  const [brsDateStart, setBrsDateStart] = useState<string>("");
-  const [brsDateEnd, setBrsDateEnd] = useState<string>("");
+  // BRS Suppliers export loading state (uses shared billsDateStart/billsDateEnd)
   const [isExportingBrsSuppliers, setIsExportingBrsSuppliers] = useState(false);
 
   const handleExportCSV = async () => {
@@ -281,26 +279,26 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
     }
   };
 
-  // New BRS Suppliers export handler
+  // BRS Suppliers export handler (uses shared billsDateStart/billsDateEnd)
   const handleExportBrsSuppliers = async () => {
-    // Frontend validation
-    if (!brsDateStart) {
+    // Frontend validation - dates are mandatory ONLY for BRS report
+    if (!billsDateStart) {
       toast({
-        title: "Date de début obligatoire",
+        title: "Date de début obligatoire pour le rapport BRS",
         description: "Veuillez saisir une date de début",
         variant: "destructive",
       });
       return;
     }
-    if (!brsDateEnd) {
+    if (!billsDateEnd) {
       toast({
-        title: "Date de fin obligatoire", 
+        title: "Date de fin obligatoire pour le rapport BRS", 
         description: "Veuillez saisir une date de fin",
         variant: "destructive",
       });
       return;
     }
-    if (new Date(brsDateStart) > new Date(brsDateEnd)) {
+    if (new Date(billsDateStart) > new Date(billsDateEnd)) {
       toast({
         title: "Dates invalides",
         description: "Date de début doit être avant date de fin",
@@ -312,8 +310,8 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
     setIsExportingBrsSuppliers(true);
     try {
       const params = new URLSearchParams();
-      params.append("date_start", brsDateStart);
-      params.append("date_end", brsDateEnd);
+      params.append("date_start", billsDateStart);
+      params.append("date_end", billsDateEnd);
       
       const response = await fetch(`/api/admin/export-nouveaux-fournisseurs-brs?${params.toString()}`, {
         headers: {
@@ -356,8 +354,8 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
       a.href = url;
       
       const disposition = response.headers.get("Content-Disposition");
-      // Generate fallback filename with YYYYMM from brsDateEnd
-      const dateEnd = new Date(brsDateEnd);
+      // Generate fallback filename with YYYYMM from billsDateEnd
+      const dateEnd = new Date(billsDateEnd);
       const yyyymm = `${dateEnd.getFullYear()}${String(dateEnd.getMonth() + 1).padStart(2, "0")}`;
       let filename = `Nouveaux_Fournisseurs_BRS_${yyyymm}.csv`;
       if (disposition) {
@@ -582,7 +580,7 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
             <div>
               <CardTitle>Export Zoho Books - Factures Fournisseurs</CardTitle>
               <CardDescription className="mt-1">
-                Exporter les factures fournisseurs au format Zoho Bills (uniquement les factures fournisseurs, pas les dépenses)
+                Exporter les factures fournisseurs au format Zoho Bills. Le rapport BRS liste les nouveaux fournisseurs avec retenue à la source 5%.
               </CardDescription>
             </div>
           </div>
@@ -610,7 +608,7 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
               />
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
             <Button
               onClick={() => handleExportBills("michael")}
               disabled={isExportingBillsMichael}
@@ -651,56 +649,20 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
               {isExportingBillsAll ? "Export..." : "Toutes FF"}
             </Button>
           </div>
-          
-          {/* Separator */}
-          <div className="border-t my-4" />
-          
-          {/* New BRS Suppliers Report */}
-          <div className="space-y-4">
-            <h3 className="font-semibold text-md">Rapport Nouveaux Fournisseurs BRS</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="brs-date-start" className="flex items-center gap-1">
-                  Du <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="brs-date-start"
-                  type="date"
-                  value={brsDateStart}
-                  onChange={(e) => setBrsDateStart(e.target.value)}
-                  data-testid="input-brs-date-start"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="brs-date-end" className="flex items-center gap-1">
-                  Au <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="brs-date-end"
-                  type="date"
-                  value={brsDateEnd}
-                  onChange={(e) => setBrsDateEnd(e.target.value)}
-                  data-testid="input-brs-date-end"
-                  required
-                />
-              </div>
-            </div>
-            <Button
-              onClick={handleExportBrsSuppliers}
-              disabled={isExportingBrsSuppliers}
-              variant="secondary"
-              className="w-full h-12"
-              data-testid="button-export-brs-suppliers"
-            >
-              <Download className="h-5 w-5 mr-2" />
-              {isExportingBrsSuppliers ? "Export en cours..." : "Export Nouveaux Fournisseurs BRS"}
-            </Button>
-            <p className="text-sm text-muted-foreground flex items-start gap-2">
-              <span className="text-primary">ℹ️</span>
-              Liste les fournisseurs créés pendant la période avec factures BRS (Retenue à la source 5%)
-            </p>
-          </div>
+          <Button
+            onClick={handleExportBrsSuppliers}
+            disabled={isExportingBrsSuppliers}
+            variant="secondary"
+            className="w-full h-12"
+            data-testid="button-export-brs-suppliers"
+          >
+            <Download className="h-5 w-5 mr-2" />
+            {isExportingBrsSuppliers ? "Export en cours..." : "Rapport Nouveaux Fournisseurs BRS"}
+          </Button>
+          <p className="text-sm text-muted-foreground flex items-start gap-2">
+            <span className="text-primary">i</span>
+            Dates obligatoires uniquement pour le rapport BRS
+          </p>
         </CardContent>
       </Card>
 
