@@ -77,6 +77,15 @@ export const adminConfig = pgTable("admin_config", {
   passwordHash: text("password_hash").notNull(),
 });
 
+// Payment methods mapping for Zoho exports
+export const paymentMethodsMapping = pgTable("payment_methods_mapping", {
+  id: serial("id").primaryKey(),
+  appName: varchar("app_name", { length: 100 }).notNull().unique(),
+  zohoName: varchar("zoho_name", { length: 150 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Insert schemas
 export const insertUserTokenSchema = createInsertSchema(userTokens).omit({
   id: true,
@@ -122,6 +131,12 @@ export const insertAdminConfigSchema = createInsertSchema(adminConfig).omit({
   id: true,
 });
 
+export const insertPaymentMethodsMappingSchema = createInsertSchema(paymentMethodsMapping).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type UserToken = typeof userTokens.$inferSelect;
 export type InsertUserToken = z.infer<typeof insertUserTokenSchema>;
@@ -140,6 +155,9 @@ export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 
 export type AdminConfig = typeof adminConfig.$inferSelect;
 export type InsertAdminConfig = z.infer<typeof insertAdminConfigSchema>;
+
+export type PaymentMethodsMapping = typeof paymentMethodsMapping.$inferSelect;
+export type InsertPaymentMethodsMapping = z.infer<typeof insertPaymentMethodsMappingSchema>;
 
 // Invoice with joined data for frontend
 export type InvoiceWithDetails = Invoice & {
