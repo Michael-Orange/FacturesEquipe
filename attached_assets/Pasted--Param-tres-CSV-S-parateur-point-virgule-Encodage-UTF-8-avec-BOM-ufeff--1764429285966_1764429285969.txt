@@ -1,0 +1,150 @@
+**Paramètres CSV :**
+- Séparateur : **point-virgule** (;)
+- Encodage : **UTF-8 avec BOM** (\ufeff au début)
+- Format date : **DD/MM/YYYY** (ex: 29/11/2025)
+- Format montant : **décimales avec point** (ex: 315000.00)
+- Guillemets : autour des valeurs texte
+
+## FILTRAGE
+
+**NE PAS ajouter de filtre `invoice_type`**
+
+Les exports Axonaut incluent TOUTES les factures (Dépenses + Factures Fournisseurs).
+
+Garder le comportement actuel :
+- Export Michael → WHERE `user_id = Michael` (tous types)
+- Export Marine → WHERE `user_id = Marine` (tous types)
+- Export Fatou → WHERE `user_id = Fatou` (tous types)
+
+## MAPPING COLONNES BDD → CSV AXONAUT
+
+| Colonne CSV Axonaut | Source BDD | Notes |
+|---------------------|------------|-------|
+| Date * | `invoices.date` | Format DD/MM/YYYY |
+| Titre * | `invoices.description` | Description de la facture |
+| Nom du fournisseur * | `suppliers.name` | JOIN suppliers |
+| Code tiers fournisseur | vide | Non utilisé |
+| Adresse - Rue | vide | Non utilisé |
+| Adresse - Code postal | vide | Non utilisé |
+| Adresse - Ville | vide | Non utilisé |
+| Montant HT * | Calculé si TVA | `amount_display_ttc / 1.18` si `vat_applicable = true`, sinon `amount_display_ttc` |
+| Montant TTC * | `amount_display_ttc` | **Utiliser amount_display_ttc** |
+| Montant TVA 20% * | 0 | Non applicable (Sénégal = TVA 18%) |
+| Montant TVA 10% * | 0 | Non applicable |
+| MontantTVA 5.5% * | 0 | Non applicable |
+| Montant TTC du * | `invoices.date` | Format DD/MM/YYYY (date de la facture) |
+| Categorie depense | `categories.account_name` | **Via LEFT JOIN categories** |
+| Montant taxe 8.5% | 0 | Non applicable |
+| Montant taxe 2.1% | 0 | Non applicable |
+| Montant taxe22% | 0 | Non applicable |
+| Montant taxe 11% | 0 | Non applicable |
+| Montant taxe 6% | 0 | Non applicable |
+| Montant taxe 3% | 0 | Non applicable |
+| Montant taxe 12% | 0 | Non applicable |
+| Montant taxe 21% | 0 | Non applicable |
+| Montant taxe 18% | Calculé si TVA | `amount_display_ttc - (amount_display_ttc / 1.18)` si `vat_applicable = true`, sinon 0 |
+| Numéro projet | `projects.id` ou `projects.code` | Identifier du projet (actuellement c'est "3" ou "4" dans l'export) |
+
+## CALCULS MONTANTS
+
+### Si vat_applicable = true (TVA 18%)
+
+**Montant HT :**
+`amount_display_ttc / 1.18`
+
+**Montant TVA 18% :**
+`amount_display_ttc - (amount_display_ttc / 1.18)`
+
+**Montant TTC :**
+`amount_display_ttc`
+
+### Si vat_applicable = false (pas de TVA)
+
+**Montant HT :**
+`amount_display_ttc` (HT = TTC car pas de TVA)
+
+**Montant TVA 18% :**
+0
+
+**Montant TTC :**
+`amount_display_ttc`
+
+## TESTS À EFFECTUER
+
+### Test 1 : Export Axonaut Michael
+1. Console admin
+2. Cliquer "Export Axonaut Michael"
+3. Télécharger CSV
+4. Ouvrir avec Excel
+5. Vérifier 27 colonnes présentes
+6. Vérifier séparateur = point-virgule
+7. Vérifier dates format DD/MM/YYYY
+8. Vérifier montants corrects (comparer avec l'app)
+
+### Test 2 : Export Axonaut Marine
+1. Même test pour Marine
+2. Vérifier uniquement factures Marine
+
+### Test 3 : Export Axonaut Fatou
+1. Même test pour Fatou
+2. Vérifier uniquement factures Fatou
+
+### Test 4 : Vérifier catégories
+1. Ouvrir CSV exporté
+2. Colonne "Categorie depense"
+3. Vérifier noms comptables complets affichés :
+   - "Réceptions"
+   - "Fournitures non stockables – Autres énergies"
+   - "Transports sur achats"
+   - "Achats d'études et prestations de services (sous-traitance directe projets)"
+   - etc.
+
+### Test 5 : Vérifier montants HT/TTC
+1. Facture AVEC TVA (`vat_applicable = true`) :
+   - Montant HT = Montant TTC / 1.18
+   - Montant TVA 18% = Montant TTC - Montant HT
+   - Montant TTC = amount_display_ttc
+2. Facture SANS TVA (`vat_applicable = false`) :
+   - Montant HT = Montant TTC
+   - Montant TVA 18% = 0
+   - Montant TTC = amount_display_ttc
+
+### Test 6 : Vérifier avec facture BRS
+1. Facture avec BRS (ex: Prestation de services sans TVA)
+2. Dans l'app : amount_display_ttc = 100 000, amount_real_ttc = 105 263
+3. Dans CSV Axonaut : Montant TTC = **100 000** (le montant affiché, pas le réel)
+
+### Test 7 : Encodage
+1. Ouvrir CSV avec Notepad++
+2. Vérifier encodage = UTF-8 avec BOM
+3. Vérifier premier caractère = \ufeff (invisible)
+
+### Test 8 : Import Axonaut (si possible)
+1. Prendre un CSV exporté
+2. Importer dans Axonaut
+3. Vérifier import réussi
+
+## POINTS D'ATTENTION
+
+1. **Format CSV identique** - 27 colonnes, même ordre, point-virgule
+2. **amount_display_ttc** - PAS amount_real_ttc pour Axonaut
+3. **categories.account_name** - Noms comptables Zoho complets (avec accents, tirets, parenthèses)
+4. **LEFT JOIN categories** - Pas INNER JOIN (au cas où category_id NULL sur anciennes factures)
+5. **Format date DD/MM/YYYY** - Pas YYYY-MM-DD
+6. **UTF-8 avec BOM** - Important pour Excel
+7. **Séparateur point-virgule** - Pas virgule
+8. **Montants décimales .00** - Format 315000.00 (point comme séparateur décimal)
+9. **Tous types factures** - Dépenses + Factures Fournisseurs (pas de filtre invoice_type)
+10. **Tester les 3 exports** - Michael, Marine, Fatou
+
+## RÉSULTAT ATTENDU
+
+- ✅ Export Axonaut Michael fonctionnel
+- ✅ Export Axonaut Marine fonctionnel
+- ✅ Export Axonaut Fatou fonctionnel
+- ✅ Format CSV Axonaut identique (27 colonnes)
+- ✅ Catégories = noms comptables Zoho (via categories.account_name)
+- ✅ Montants = amount_display_ttc (pas amount_real_ttc)
+- ✅ Calculs TVA corrects (18% si applicable)
+- ✅ Aucune erreur lors des exports
+- ✅ Compatible avec import Axonaut
