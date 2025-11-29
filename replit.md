@@ -30,21 +30,31 @@ Preferred communication style: Simple, everyday language.
 - `InvoiceForm`: Main submission form with validation via react-hook-form and zod
   - **Phase 2 Enhanced Fields (Nov 2025):**
     - 14 fields total with conditional display logic
-    - `isStockPurchase` toggle - forces category to "Stock - achats de matériaux"
-    - `categoryId` dropdown - loads 14 Zoho categories from database
-    - `vatApplicable` toggle - disabled for Restaurant/Essence categories
-    - `hasBrs` toggle - shows only for Prestations de services without TVA
+    - `isStockPurchase` horizontal radio buttons (Oui/Non, default Non) - forces category to "Stock - achats de matériaux"
+    - `categoryId` dropdown - loads 14 Zoho categories with custom sort order:
+      - First: "Achats de matières premières et fournitures"
+      - Second: "Prestation de services"
+      - Remaining categories: alphabetical order
+    - `vatApplicable` horizontal radio buttons (Oui/Non, default Non) - label "Facture avec TVA (18%) ?"
+      - Disabled for Restaurant/Essence categories
+    - **Automatic BRS Detection (Nov 2025 update):**
+      - BRS automatically applies when TVA=No AND category is one of:
+        - "Prestation de services"
+        - "Transports"
+        - "Frais de maintenance (service)"
+      - Orange info box displays: "Retenue BRS : X FCFA sur Y FCFA"
+      - Calculation: Real TTC = TTC / 0.95, BRS = 5% of Real TTC
+      - No manual toggle - purely automatic based on category + TVA combination
     - `invoiceType` radios - "Dépense" or "Facture Fournisseur"
     - `invoiceNumber` input - required only for Facture Fournisseur type
     - Calculated readonly fields: `amountHT` (TTC/1.18), `amountRealTTC` (with BRS: TTC/0.95)
-  - **7 useEffects for Conditional Logic:**
+  - **6 useEffects for Conditional Logic:**
     1. Stock purchase → Force category to stock
     2. Category Restaurant/Essence → Force TVA=false
     3. TVA=true → Calculate and display Montant HT
-    4. Prestations sans TVA → Show BRS field
-    5. BRS=true → Calculate Montant TTC réel
-    6. Amount>=500k OR regular supplier OR BRS → Force "Facture Fournisseur"
-    7. Type "Facture Fournisseur" → Show invoice number field
+    4. TVA=false + BRS categories → Auto-apply BRS, calculate Real TTC, show info box
+    5. Amount>=500k OR regular supplier OR BRS → Force "Facture Fournisseur"
+    6. Type "Facture Fournisseur" → Show invoice number field
   - **Mobile Photo Upload**: File input optimized for both iOS and Android
     - iOS compatibility fix (Nov 2025): Removed `capture` attribute to allow both camera and gallery access
     - iOS users can now choose "Take Photo" or "Photo Library" from action sheet
