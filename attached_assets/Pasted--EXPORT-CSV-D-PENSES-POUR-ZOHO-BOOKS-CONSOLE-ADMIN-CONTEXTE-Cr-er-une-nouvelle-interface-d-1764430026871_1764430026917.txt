@@ -1,0 +1,379 @@
+# EXPORT CSV DÉPENSES POUR ZOHO BOOKS - CONSOLE ADMIN
+
+## CONTEXTE
+Créer une nouvelle interface d'export CSV dans la console admin pour exporter les dépenses vers Zoho Books. Les exports Axonaut existants doivent être CONSERVÉS (les 2 coexistent).
+
+## OBJECTIFS
+1. Nouvelle section "Exports Zoho" dans console admin
+2. Export CSV format Zoho Books (27 colonnes)
+3. 4 boutons d'export (Michael, Marine, Fatou, Toutes dépenses)
+4. Filtrage par période avec date pickers (Du ... au ...)
+5. Utilisation table payment_methods_mapping pour mapping comptes bancaires
+6. **NE PAS TOUCHER aux exports Axonaut existants**
+
+## TESTS UNIQUEMENT AVEC PROFIL MICHAEL
+⚠️ IMPORTANT : Tous les tests de cette fonctionnalité doivent être effectués UNIQUEMENT avec le compte Michael. Ne pas utiliser les comptes Marine ni Fatou pour éviter de créer des exports incohérents pendant le développement.
+
+## PLACEMENT DANS L'INTERFACE
+
+### Console Admin - Nouvelle section
+
+Ajouter une nouvelle section **APRÈS** les exports Axonaut existants :
+CONSOLE ADMIN - EXPORTS
+┌─────────────────────────────────────┐
+│ Section 1 : Exports Axonaut        │
+│ [Bouton Export Michael]            │
+│ [Bouton Export Marine]             │
+│ [Bouton Export Fatou]              │
+└─────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│ Section 2 : Exports Zoho (NOUVEAU) │
+│                                     │
+│ Exports Dépenses vers Zoho Books   │
+│                                     │
+│ Filtres :                          │
+│ [Du : date picker] [Au : date picker]│
+│                                     │
+│ [Bouton Export Dépenses Michael]   │
+│ [Bouton Export Dépenses Marine]    │
+│ [Bouton Export Dépenses Fatou]     │
+│ [Bouton Export Toutes Dépenses]    │
+│                                     │
+│ ℹ️ Format compatible Zoho Books    │
+│ Inclut uniquement les dépenses     │
+└─────────────────────────────────────┘
+
+**Important :** Bien séparer visuellement les 2 sections (titre, bordure, espacement).
+
+## FORMAT EXPORT ZOHO - 27 COLONNES
+
+### Headers CSV (ordre exact)
+Entry Number,Expense Date,Expense Account,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,Branch Name,Employee Email,CF.company,Project Name
+
+### Paramètres CSV
+
+- **Séparateur :** virgule (,)
+- **Encodage :** UTF-8 avec BOM
+- **Format date :** YYYY-MM-DD (ex: 2024-11-29)
+- **Format montant :** décimales avec point (ex: 50000.00)
+- **Guillemets :** autour des valeurs texte contenant virgules
+
+### Mapping colonnes BDD → CSV Zoho
+
+| N° | Colonne Zoho | Source BDD | Règle |
+|----|--------------|------------|-------|
+| 1 | Entry Number | - | Séquence 1, 2, 3... (numéro ligne export) |
+| 2 | Expense Date | `invoices.date` | Format YYYY-MM-DD |
+| 3 | Expense Account | `categories.account_name` | Nom compte comptable Zoho |
+| 4 | Paid Through | `payment_methods_mapping.zoho_name` | Via LEFT JOIN payment_methods_mapping |
+| 5 | Vendor | `suppliers.name` | Nom fournisseur |
+| 6 | Expense Description | `invoices.description` | Description |
+| 7 | Currency Code | Fixe | "XOF" |
+| 8 | Exchange Rate | Fixe | 1 |
+| 9 | Expense Amount | `invoices.amount_real_ttc` | Montant TTC réel comptable |
+| 10 | Tax Name | Conditionnel | "TVA" si `vat_applicable = true`, vide sinon |
+| 11 | Tax Percentage | Conditionnel | 18 si `vat_applicable = true`, vide sinon |
+| 12 | Is Inclusive Tax | Conditionnel | true si `vat_applicable = true`, vide sinon |
+| 13 | Is Billable | Fixe | False |
+| 14 | Customer Name | Vide | (non applicable) |
+| 15 | Reference# | `invoices.invoice_number` | DEP-MI-2511-001 |
+| 16 | Mileage Rate | Vide | (non applicable) |
+| 17 | Distance | Vide | (non applicable) |
+| 18 | Start Odometer Reading | Vide | (non applicable) |
+| 19 | End Odometer Reading | Vide | (non applicable) |
+| 20 | Mileage Unit | Vide | (non applicable) |
+| 21 | Mileage Type | Fixe | NonMileage |
+| 22 | Expense Reference ID | Vide | (généré par Zoho) |
+| 23 | Tax Type | Vide | (non applicable) |
+| 24 | Branch Name | Vide | (non applicable) |
+| 25 | Employee Email | Vide | (non applicable) |
+| 26 | CF.company | Vide | (non applicable) |
+| 27 | Project Name | `projects.name` | Nom du projet |
+
+### Utilisation table payment_methods_mapping
+
+**Jointure SQL :**
+LEFT JOIN payment_methods_mapping ON invoices.payment_method = payment_methods_mapping.app_name
+
+**Colonne "Paid Through" :**
+- Si mapping trouvé → utiliser `payment_methods_mapping.zoho_name`
+- Si mapping NULL (pas de correspondance) → utiliser `invoices.payment_method` tel quel (fallback)
+- Logger un warning si fallback utilisé : "Mode paiement non mappé : [valeur]"
+
+**Rappel mappings dans la table :**
+- Wave Business → Banques - autres (Wave Business Principal)
+- Wave Business Caisse → Banques - autres (Wave Business Caisse)
+- Espèces → Caisse en monnaie nationale
+- Perso remboursé → Banques - autres (Wave Business Principal)
+- Carte bancaire → Banques en monnaie nationale
+
+## RÈGLES DE FILTRAGE
+
+### Critère de base obligatoire
+
+**UNIQUEMENT les dépenses :**
+WHERE invoice_type = 'expense'
+
+Exclure toutes les Factures Fournisseurs (invoice_type = 'supplier_invoice').
+
+### Filtrage par période (date pickers)
+
+Interface avec 2 date pickers :
+- **Date début** (label: "Du")
+- **Date fin** (label: "Au")
+
+**Si dates sélectionnées :**
+WHERE date >= date_debut AND date <= date_fin
+
+**Si dates vides :**
+Exporter toutes les dépenses (pas de filtre date).
+
+### Filtrage par utilisateur (4 boutons)
+
+**Bouton 1 : Export Dépenses Michael**
+- WHERE `user_id = [ID Michael]` AND `invoice_type = 'expense'`
+- Nom fichier : `Depenses_Michael_YYYYMM.csv`
+
+**Bouton 2 : Export Dépenses Marine**
+- WHERE `user_id = [ID Marine]` AND `invoice_type = 'expense'`
+- Nom fichier : `Depenses_Marine_YYYYMM.csv`
+
+**Bouton 3 : Export Dépenses Fatou**
+- WHERE `user_id = [ID Fatou]` AND `invoice_type = 'expense'`
+- Nom fichier : `Depenses_Fatou_YYYYMM.csv`
+
+**Bouton 4 : Export Toutes Dépenses**
+- WHERE `invoice_type = 'expense'` (tous users confondus)
+- Nom fichier : `Depenses_Toutes_YYYYMM.csv`
+
+**Format nom fichier :**
+- YYYYMM = année + mois de la date de fin sélectionnée
+- Si pas de date fin sélectionnée → utiliser mois actuel
+- Ex: date fin = 2024-11-30 → `Depenses_Michael_202411.csv`
+
+### Tri des données
+
+Trier par date croissante :
+ORDER BY date ASC
+
+## BACKEND - ROUTE EXPORT
+
+### Route GET /api/exports/zoho/expenses
+
+**Query params :**
+- `user` : 'michael' | 'marine' | 'fatou' | 'all'
+- `date_start` : YYYY-MM-DD (optionnel)
+- `date_end` : YYYY-MM-DD (optionnel)
+
+**Exemple requête :**
+GET /api/exports/zoho/expenses?user=michael&date_start=2024-11-01&date_end=2024-11-30
+
+### Logique backend
+
+**Étape 1 : Requête SQL avec jointures**
+
+Jointures nécessaires :
+SELECT ...
+FROM invoices
+JOIN categories ON invoices.category_id = categories.id
+JOIN suppliers ON invoices.supplier_id = suppliers.id
+JOIN projects ON invoices.project_id = projects.id
+LEFT JOIN payment_methods_mapping ON invoices.payment_method = payment_methods_mapping.app_name
+WHERE invoice_type = 'expense'
+AND [filtres utilisateur et dates]
+ORDER BY date ASC
+
+**Étape 2 : Construire filtres WHERE**
+
+Filtres à appliquer :
+- `invoice_type = 'expense'` (obligatoire)
+- Si `user != 'all'` → ajouter `user_id = [ID]`
+- Si `date_start` fourni → ajouter `date >= date_start`
+- Si `date_end` fourni → ajouter `date <= date_end`
+
+**Étape 3 : Mapper chaque ligne vers format Zoho**
+
+Pour chaque facture récupérée :
+
+1. **Entry Number** → index de la ligne + 1 (1, 2, 3...)
+2. **Expense Date** → formater `date` en YYYY-MM-DD
+3. **Expense Account** → `categories.account_name`
+4. **Paid Through** → `payment_methods_mapping.zoho_name` (ou fallback `payment_method` si NULL)
+5. **Vendor** → `suppliers.name`
+6. **Expense Description** → `description`
+7. **Currency Code** → "XOF"
+8. **Exchange Rate** → 1
+9. **Expense Amount** → `amount_real_ttc`
+10. **Tax Name** → "TVA" si `vat_applicable = true`, sinon ""
+11. **Tax Percentage** → 18 si `vat_applicable = true`, sinon ""
+12. **Is Inclusive Tax** → true si `vat_applicable = true`, sinon ""
+13. **Is Billable** → False
+14. **Customer Name** → ""
+15. **Reference#** → `invoice_number` (DEP-XX-YYMM-XXX)
+16-20. **Mileage fields** → ""
+21. **Mileage Type** → NonMileage
+22-26. **Autres fields** → ""
+27. **Project Name** → `projects.name`
+
+**Étape 4 : Générer CSV**
+
+Format CSV :
+- Ligne 1 : Headers (27 colonnes séparées par virgule)
+- Lignes suivantes : Données
+- Encodage UTF-8 avec BOM (`\ufeff` au début)
+- Échapper guillemets et virgules dans les descriptions
+
+**Étape 5 : Retourner le fichier**
+
+Headers HTTP :
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="Depenses_Michael_202411.csv"
+
+## INTERFACE FRONTEND
+
+### Composants UI
+
+**Titre section :**
+- "Exports Dépenses vers Zoho Books"
+
+**Filtres :**
+
+1. Label : "Période"
+2. Champ date picker "Du" (placeholder: "JJ/MM/AAAA")
+3. Champ date picker "Au" (placeholder: "JJ/MM/AAAA")
+4. Bouton "Réinitialiser" pour vider les dates (optionnel)
+
+**Boutons d'export (4 boutons) :**
+
+Afficher en grille 2x2 ou liste verticale :
+- Bouton "Export Dépenses Michael"
+- Bouton "Export Dépenses Marine"
+- Bouton "Export Dépenses Fatou"
+- Bouton "Export Toutes Dépenses"
+
+**Message info :**
+
+Afficher sous les boutons :
+ℹ️ Format compatible Zoho Books. Inclut uniquement les dépenses (pas les Factures Fournisseurs).
+
+### Comportement au clic bouton
+
+1. Récupérer valeurs date_start et date_end (si saisies)
+2. Identifier l'utilisateur selon le bouton cliqué (michael, marine, fatou, all)
+3. Construire URL : `/api/exports/zoho/expenses?user=michael&date_start=...&date_end=...`
+4. Appeler la route backend (fetch GET)
+5. Télécharger le fichier CSV retourné
+6. Afficher message succès : "✅ Export généré : X dépenses exportées"
+
+**Si aucune dépense trouvée :**
+- Afficher message : "ℹ️ Aucune dépense trouvée pour cette période"
+
+**Si erreur backend :**
+- Afficher message : "❌ Erreur lors de l'export. Veuillez réessayer."
+
+## EXEMPLES LIGNES EXPORT
+
+**Dépense Michael avec TVA :**
+```csv
+1,2024-11-29,"Réceptions","Caisse en monnaie nationale","SHARKYS","Repas équipe chantier","XOF",1,50000,"TVA",18,true,False,,"DEP-MI-2411-001",,,,,,NonMileage,,,,,,"Usine Thiès"
+Dépense Marine avec BRS (sans TVA) :
+2,2024-11-15,"Achats d'études et prestations de services","Banques - autres (Wave Business Principal)","Comptable Pro","Prestation comptable","XOF",1,315789,,,,False,,"DEP-MA-2411-005",,,,,,NonMileage,,,,,,"Projet Grand Bassam"
+Dépense Fatou carte bancaire :
+3,2024-11-20,"Fournitures non stockables – Autres énergies","Banques en monnaie nationale","Total Energies","Gasoil camion","XOF",1,75000,,,,False,,"DEP-FA-2411-012",,,,,,NonMileage,,,,,,"Chantier Cocody"
+TESTS À EFFECTUER (PROFIL MICHAEL UNIQUEMENT)
+Test 1 : Interface admin visible
+Se connecter en tant que Michael
+Aller dans console admin
+Vérifier section "Exports Zoho" présente
+Vérifier 2 date pickers + 4 boutons visibles
+Vérifier section séparée des exports Axonaut
+Test 2 : Export Michael avec période
+Sélectionner période : 01/11/2024 au 30/11/2024
+Cliquer "Export Dépenses Michael"
+Vérifier téléchargement Depenses_Michael_202411.csv
+Ouvrir avec Excel
+Vérifier 27 colonnes présentes
+Vérifier uniquement dépenses Michael (pas Marine/Fatou)
+Vérifier uniquement Type = Dépense (pas Factures Fournisseurs)
+Vérifier dates entre 01/11 et 30/11
+Test 3 : Export toutes dépenses sans filtre date
+Ne pas sélectionner de dates (laisser vide)
+Cliquer "Export Toutes Dépenses"
+Vérifier export de toutes les dépenses (Michael + Marine + Fatou)
+Vérifier toutes les dates (pas de filtre)
+Test 4 : Vérifier mapping modes paiement
+Ouvrir CSV exporté
+Colonne "Paid Through" → vérifier valeurs Zoho :
+Wave Business → "Banques - autres (Wave Business Principal)"
+Wave Business Caisse → "Banques - autres (Wave Business Caisse)"
+Espèces → "Caisse en monnaie nationale"
+Carte bancaire → "Banques en monnaie nationale"
+Perso remboursé → "Banques - autres (Wave Business Principal)"
+Test 5 : Vérifier colonnes TVA
+Dépense AVEC TVA :
+Tax Name = "TVA"
+Tax Percentage = 18
+Is Inclusive Tax = true
+Dépense SANS TVA (BRS ou autre) :
+Tax Name = vide
+Tax Percentage = vide
+Is Inclusive Tax = vide
+Test 6 : Vérifier montant = amount_real_ttc
+Dépense avec BRS :
+amount_display_ttc = 100 000 FCFA
+amount_real_ttc = 105 263 FCFA
+Dans CSV Zoho colonne "Expense Amount" = 105263 (montant réel comptable)
+Dépense sans BRS :
+amount_display_ttc = 50 000 FCFA
+amount_real_ttc = 50 000 FCFA
+Dans CSV Zoho = 50000
+Test 7 : Vérifier colonnes fixes
+Currency Code = "XOF" (toutes lignes)
+Exchange Rate = 1 (toutes lignes)
+Is Billable = False (toutes lignes)
+Mileage Type = NonMileage (toutes lignes)
+Colonnes vides = bien vides (Customer Name, Mileage Rate, etc.)
+Test 8 : Vérifier Entry Number
+Première ligne = 1
+Deuxième ligne = 2
+Séquence continue
+Test 9 : Vérifier Reference#
+Colonne Reference# contient les numéros DEP-XX-YYMM-XXX
+Correspondance avec les numéros dans l'app
+Test 10 : Aucune dépense trouvée
+Sélectionner période sans dépense (ex: 01/01/2020 au 01/01/2020)
+Cliquer export
+Vérifier message "Aucune dépense trouvée pour cette période"
+Test 11 : Import Zoho (final)
+Exporter un CSV Michael
+Aller sur Zoho Books → Expenses → Import
+Uploader le fichier CSV
+Vérifier import réussi sans erreur
+Vérifier dépenses créées dans Zoho avec bonnes données
+Test 12 : Exports Axonaut toujours fonctionnels
+Vérifier que les exports Axonaut (section au-dessus) fonctionnent toujours
+Cliquer "Export Axonaut Michael"
+Vérifier téléchargement CSV Axonaut OK
+Les 2 systèmes (Axonaut + Zoho) coexistent sans conflit
+POINTS D'ATTENTION
+NE PAS TOUCHER exports Axonaut - Les 2 coexistent dans la console admin
+Tests profil Michael uniquement - Ne pas tester avec Marine/Fatou
+Séparateur virgule - Pas point-virgule comme Axonaut
+Format date YYYY-MM-DD - Pas DD/MM/YYYY comme Axonaut
+amount_real_ttc - Montant comptable réel (pas amount_display_ttc)
+LEFT JOIN payment_methods_mapping - Avec fallback si mapping NULL
+Entry Number - Séquence simple (pas numéro Zoho interne)
+Reference# - Numéro dépense DEP pour traçabilité
+TVA conditionnelle - 3 colonnes (Tax Name, Tax Percentage, Is Inclusive Tax) vides si pas de TVA
+Encodage UTF-8 BOM - Important pour Excel
+RÉSULTAT ATTENDU
+✅ Section "Exports Zoho" dans console admin (séparée d'Axonaut)
+✅ 2 date pickers filtrage période
+✅ 4 boutons export fonctionnels (Michael, Marine, Fatou, Toutes)
+✅ Route backend GET /api/exports/zoho/expenses opérationnelle
+✅ CSV format Zoho (27 colonnes, séparateur virgule)
+✅ Mapping via table payment_methods_mapping
+✅ Montants = amount_real_ttc (comptable)
+✅ Import Zoho réussi
+✅ Exports Axonaut toujours fonctionnels (coexistence)
+✅ Tests validés avec profil Michael uniquement
