@@ -1,0 +1,203 @@
+# EXPORT NOUVEAUX FOURNISSEURS BRS - ZOHO BOOKS
+
+## CONTEXTE
+Créer un export CSV pour identifier les fournisseurs créés pendant une période donnée et ayant des factures avec BRS (Retenue à la source 5%).
+
+## OBJECTIF
+Export simple listant les nouveaux fournisseurs BRS avec 3 colonnes :
+1. Nom du fournisseur
+2. Date de création du fournisseur
+3. Nombre de factures BRS sur la période
+
+## TESTS UNIQUEMENT AVEC PROFIL MICHAEL
+⚠️ IMPORTANT : Tous les tests avec le compte Michael uniquement.
+
+## PLACEMENT INTERFACE
+
+Ajouter dans la section "Exports Zoho - Factures Fournisseurs" existante :
+┌─────────────────────────────────────┐
+│ Exports Zoho - Factures            │
+│ Fournisseurs                       │
+│                                     │
+│ Filtres période (DD/MM/YYYY)       │
+│ [4 boutons export FF existants]    │
+│                                     │
+│ ─────────────────────────────────  │
+│                                     │
+│ Rapport Nouveaux Fournisseurs BRS  │
+│                                     │
+│ Période obligatoire :              │
+│ [Du : date picker *] [Au : date picker *]│
+│                                     │
+│ [Bouton Export Nouveaux Fournisseurs BRS]│
+│                                     │
+│ ℹ️ Liste les fournisseurs créés    │
+│ pendant la période avec factures BRS│
+└─────────────────────────────────────┘
+
+**Note :** Placer sous les 4 boutons d'export FF, avec séparateur visuel.
+
+## FORMAT EXPORT - 3 COLONNES
+
+### Headers CSV
+Nom Fournisseur,Date Création,Nombre Factures BRS
+
+### Colonnes
+
+| N° | Colonne | Source | Format |
+|----|---------|--------|--------|
+| 1 | Nom Fournisseur | `suppliers.name` | Texte |
+| 2 | Date Création | `suppliers.created_at` | DD/MM/YYYY |
+| 3 | Nombre Factures BRS | COUNT(invoices) | Nombre entier |
+
+### Paramètres CSV
+
+- **Séparateur :** virgule (,)
+- **Encodage :** UTF-8 avec BOM
+- **Format date :** DD/MM/YYYY (ex: 15/11/2024)
+
+### Exemple lignes
+
+```csv
+Nom Fournisseur,Date Création,Nombre Factures BRS
+Comptable Pro,10/11/2024,3
+Électricien SARL,15/11/2024,1
+Plombier Services,20/11/2024,2
+LOGIQUE BACKEND
+Route GET /api/admin/export-nouveaux-fournisseurs-brs
+Query params (OBLIGATOIRES) :
+date_start : YYYY-MM-DD (obligatoire)
+date_end : YYYY-MM-DD (obligatoire)
+Exemple :
+GET /api/admin/export-nouveaux-fournisseurs-brs?date_start=2024-11-01&date_end=2024-11-30
+Si dates manquantes :
+Retourner erreur 400 : "Les dates de début et fin sont obligatoires"
+Requête SQL
+Logique :
+Récupérer les fournisseurs qui ont :
+suppliers.created_at >= date_start (créés pendant ou après le début de la période)
+Au moins 1 facture avec has_brs = true entre date_start et date_end
+Type facture = 'supplier_invoice' (Factures Fournisseurs uniquement)
+Requête SQL :
+SELECT 
+  suppliers.name AS nom_fournisseur,
+  suppliers.created_at AS date_creation,
+  COUNT(invoices.id) AS nombre_factures_brs
+FROM suppliers
+JOIN invoices ON invoices.supplier_id = suppliers.id
+WHERE suppliers.created_at >= date_start
+  AND invoices.invoice_type = 'supplier_invoice'
+  AND invoices.has_brs = true
+  AND invoices.date >= date_start
+  AND invoices.date <= date_end
+GROUP BY suppliers.id, suppliers.name, suppliers.created_at
+ORDER BY suppliers.created_at ASC
+Notes :
+GROUP BY pour compter les factures par fournisseur
+Filtrer sur suppliers.created_at >= date_start (fournisseurs créés pendant la période)
+Filtrer sur invoices.has_brs = true (uniquement factures BRS)
+Filtrer sur dates factures entre date_start et date_end
+Génération CSV
+Mapper chaque ligne :
+Nom Fournisseur → suppliers.name
+Date Création → formater suppliers.created_at en DD/MM/YYYY
+Nombre Factures BRS → COUNT(invoices.id)
+Headers + données
+Encodage UTF-8 BOM
+Séparateur virgule
+Nom fichier
+Format : Nouveaux_Fournisseurs_BRS_YYYYMM.csv
+Où YYYYMM = année + mois de la date de fin.
+Exemple : Nouveaux_Fournisseurs_BRS_202411.csv
+INTERFACE FRONTEND
+Composants UI
+Sous-titre :
+"Rapport Nouveaux Fournisseurs BRS"
+Filtres période (OBLIGATOIRES) :
+Label : "Période obligatoire :"
+Date picker "Du *" (obligatoire)
+Date picker "Au *" (obligatoire)
+Afficher astérisque rouge pour indiquer champs obligatoires
+Bouton :
+"Export Nouveaux Fournisseurs BRS"
+Message info :
+ℹ️ Liste les fournisseurs créés pendant la période avec factures BRS (Retenue à la source 5%)
+Comportement au clic
+Validation :
+Vérifier que date_start est saisie → sinon afficher erreur "Date de début obligatoire"
+Vérifier que date_end est saisie → sinon afficher erreur "Date de fin obligatoire"
+Vérifier que date_start <= date_end → sinon afficher erreur "Date de début doit être avant date de fin"
+Si validation OK :
+Récupérer dates (format YYYY-MM-DD pour backend)
+Appeler /api/admin/export-nouveaux-fournisseurs-brs?date_start=...&date_end=...
+Télécharger CSV
+Message succès : "✅ Export généré : X fournisseurs listés"
+Si aucun fournisseur trouvé :
+Afficher message : "ℹ️ Aucun nouveau fournisseur BRS trouvé pour cette période"
+Si erreur backend (dates manquantes) :
+Afficher message : "❌ Les dates de début et fin sont obligatoires"
+TESTS (PROFIL MICHAEL UNIQUEMENT)
+Test 1 : Interface visible
+Console admin → Section Exports Zoho FF
+Vérifier sous-section "Rapport Nouveaux Fournisseurs BRS" présente
+Vérifier 2 date pickers + 1 bouton + message info
+Test 2 : Validation dates obligatoires
+Ne pas saisir de dates
+Cliquer "Export Nouveaux Fournisseurs BRS"
+Vérifier message erreur "Date de début obligatoire"
+Test 3 : Export période novembre 2024
+Saisir période : 01/11/2024 au 30/11/2024
+Cliquer bouton export
+Télécharger Nouveaux_Fournisseurs_BRS_202411.csv
+Ouvrir avec Excel
+Vérifier 3 colonnes : Nom Fournisseur, Date Création, Nombre Factures BRS
+Test 4 : Vérifier logique filtrage
+Identifier dans la BDD :
+Fournisseurs créés AVANT 01/11/2024 avec factures BRS en novembre
+Fournisseurs créés APRÈS 01/11/2024 avec factures BRS en novembre
+Vérifier CSV contient UNIQUEMENT les fournisseurs créés après 01/11
+Exclut ceux créés avant
+Test 5 : Vérifier comptage factures
+Fournisseur avec 1 facture BRS → Nombre = 1
+Fournisseur avec 3 factures BRS → Nombre = 3
+Vérifier comptage correct
+Test 6 : Vérifier format date
+Date Création affichée en DD/MM/YYYY
+Pas YYYY-MM-DD
+Test 7 : Période sans fournisseur
+Sélectionner période sans nouveau fournisseur BRS
+Cliquer export
+Vérifier message "Aucun nouveau fournisseur BRS trouvé"
+Test 8 : Validation date_start > date_end
+Saisir date début = 30/11/2024
+Saisir date fin = 01/11/2024 (incohérent)
+Cliquer export
+Vérifier message erreur "Date de début doit être avant date de fin"
+Test 9 : Fournisseurs sans BRS exclus
+Vérifier que fournisseurs avec uniquement factures SANS BRS ne sont PAS dans l'export
+Seuls fournisseurs avec au moins 1 facture BRS
+Test 10 : Coexistence exports
+Tester export FF Michael → OK
+Tester export Nouveaux Fournisseurs BRS → OK
+Pas de conflit
+POINTS D'ATTENTION
+Dates obligatoires - Validation frontend ET backend
+Filtrage created_at - Fournisseurs créés pendant/après date_start
+has_brs = true - Uniquement factures avec BRS
+invoice_type = 'supplier_invoice' - Uniquement Factures Fournisseurs
+GROUP BY - Compter les factures par fournisseur
+Format date DD/MM/YYYY - Pas YYYY-MM-DD dans le CSV
+Export global - Pas de filtrage par utilisateur (tous users confondus)
+3 colonnes simples - Export léger et ciblé
+Tests Michael uniquement - Pas Marine/Fatou
+Placement sous FF - Sous les 4 boutons d'export FF existants
+RÉSULTAT ATTENDU
+✅ Sous-section "Rapport Nouveaux Fournisseurs BRS" sous Exports Zoho FF
+✅ 2 date pickers obligatoires + validation
+✅ 1 bouton export fonctionnel
+✅ Route /api/admin/export-nouveaux-fournisseurs-brs opérationnelle
+✅ CSV 3 colonnes (Nom, Date Création, Nombre Factures BRS)
+✅ Filtrage correct (créés pendant période + has_brs = true)
+✅ Format DD/MM/YYYY pour dates
+✅ Export global (tous users)
+✅ Tests validés profil Michael uniquement
