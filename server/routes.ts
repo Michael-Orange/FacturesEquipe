@@ -6,7 +6,7 @@ import { randomBytes } from "crypto";
 import { storage, generateExpenseNumber } from "./storage";
 import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
-import { sendInvoiceConfirmation } from "./integrations/resend";
+import { sendInvoiceConfirmation, sendPaymentConfirmation } from "./integrations/resend";
 import { insertInvoiceSchema, insertSupplierSchema, insertPaymentSchema, invoices, payments, InvoiceWithDetails, InvoiceWithPayments, paymentMethodsMapping, categories, suppliers, projects } from "@shared/schema";
 import { isNull, eq, and, gte, lte, desc, asc, count, sql } from "drizzle-orm";
 import { format } from "date-fns";
@@ -195,15 +195,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const invoices = await storage.getInvoicesByUser(userName);
 
-      // CSV header
-      const csvHeader = "Date;Fournisseur;Catégorie;Montant TTC;TVA;Montant HT;Description;Mode de paiement;Projet\n";
+      // CSV header with payment columns
+      const csvHeader = "Date;Fournisseur;Catégorie;Montant TTC;TVA;Montant HT;Description;Mode de paiement;Projet;Type;N° Facture;Statut Paiement;Total Payé;Reste à Payer\n";
       
-      const csvRows = invoices.map((inv) => {
+      const csvRows = await Promise.all(invoices.map(async (inv) => {
         const invoiceDate = format(new Date(inv.invoiceDate), "dd/MM/yyyy", { locale: fr });
         const tva = inv.vatApplicable ? "Oui" : "Non";
         const montantHT = inv.amountHT || "";
         const description = inv.description || "";
         const projet = inv.projectNumber ? `${inv.projectNumber} - ${inv.projectName}` : "";
+        const typeFacture = inv.invoiceType === 'supplier_invoice' ? 'Facture Fournisseur' : 'Dépense';
+        const numFacture = inv.invoiceNumber || "";
+        
+        let statutPaiement = "";
+        let totalPaye = "";
+        let resteAPayer = "";
+        
+        if (inv.invoiceType === 'supplier_invoice') {
+          const payments = await storage.getPaymentsByInvoiceId(inv.id);
+          const totalPaidAmount = payments.reduce((sum, p) => sum + parseFloat(p.amountPaid?.toString() || "0"), 0);
+          const amountToPay = parseFloat(inv.amountDisplayTTC?.toString() || "0");
+          const remaining = amountToPay - totalPaidAmount;
+          
+          statutPaiement = inv.paymentStatus === 'paid' ? 'Payé' : inv.paymentStatus === 'partial' ? 'Partiel' : 'Non payé';
+          totalPaye = totalPaidAmount.toString();
+          resteAPayer = remaining.toString();
+        }
 
         return [
           invoiceDate,
@@ -215,10 +232,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           description,
           inv.paymentType,
           projet,
+          typeFacture,
+          numFacture,
+          statutPaiement,
+          totalPaye,
+          resteAPayer,
         ]
-          .map((field) => `"${field}"`)
+          .map((field) => `"${String(field)}"`)
           .join(";");
-      });
+      }));
 
       const csv = csvHeader + csvRows.join("\n");
 
@@ -511,6 +533,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const driveFileUrl = `https://drive.google.com/file/d/${driveFileId}/view`;
 
       try {
+        let paymentInfo = null;
+        if (invoiceType === 'supplier_invoice') {
+          const paymentAmount = isPaymentFull 
+            ? parsedAmountDisplayTTC 
+            : (parsedFirstPaymentAmount || 0);
+          const paymentDate = firstPaymentDate || invoiceDate;
+          const pType = firstPaymentType || paymentType;
+          const remainingAmount = parsedAmountDisplayTTC - paymentAmount;
+          
+          if (paymentAmount > 0) {
+            paymentInfo = {
+              status: initialPaymentStatus,
+              firstPaymentAmount: paymentAmount.toLocaleString("fr-FR"),
+              firstPaymentDate: format(new Date(paymentDate), "d MMMM yyyy", { locale: fr }),
+              firstPaymentType: pType,
+              remainingAmount: remainingAmount > 0 ? remainingAmount.toLocaleString("fr-FR") : undefined,
+            };
+          }
+        }
+
         await sendInvoiceConfirmation(userEmail, userName, userToken.token, {
           supplierName: supplier?.name || "N/A",
           amount: parsedAmountDisplayTTC.toLocaleString("fr-FR"),
@@ -520,6 +562,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           paymentType,
           projectName,
           driveFileUrl,
+          invoiceType: invoiceType || undefined,
+          invoiceNumber: finalInvoiceNumber || null,
+          paymentInfo,
         });
       } catch (emailError) {
         console.error("Error sending email:", emailError);
@@ -885,11 +930,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const invoices = await storage.getAllInvoicesIncludingArchived();
 
-      const csvHeader = "Nom,Date,Fournisseur,Catégorie,Montant TTC,TVA Applicable,Montant HT,Description,Type de règlement,Projet,Créé le\n";
-      const csvRows = invoices.map((inv) => {
+      const csvHeader = "Nom,Date,Fournisseur,Catégorie,Montant TTC,TVA Applicable,Montant HT,Description,Type de règlement,Projet,Type Facture,N° Facture,Statut Paiement,Total Payé,Reste à Payer,Créé le\n";
+      const csvRows = await Promise.all(invoices.map(async (inv) => {
         const projectInfo = inv.projectNumber && inv.projectName 
           ? `${inv.projectNumber} - ${inv.projectName}` 
           : "";
+        
+        const typeFacture = inv.invoiceType === 'supplier_invoice' ? 'Facture Fournisseur' : 'Dépense';
+        const numFacture = inv.invoiceNumber || "";
+        
+        let statutPaiement = "";
+        let totalPaye = "";
+        let resteAPayer = "";
+        
+        if (inv.invoiceType === 'supplier_invoice') {
+          const payments = await storage.getPaymentsByInvoiceId(inv.id);
+          const totalPaidAmount = payments.reduce((sum, p) => sum + parseFloat(p.amountPaid?.toString() || "0"), 0);
+          const amountToPay = parseFloat(inv.amountDisplayTTC?.toString() || "0");
+          const remaining = amountToPay - totalPaidAmount;
+          
+          statutPaiement = inv.paymentStatus === 'paid' ? 'Payé' : inv.paymentStatus === 'partial' ? 'Partiel' : 'Non payé';
+          totalPaye = totalPaidAmount.toString();
+          resteAPayer = remaining.toString();
+        }
+
         return [
           inv.userName,
           format(new Date(inv.invoiceDate), "dd/MM/yyyy"),
@@ -901,11 +965,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           inv.description || "",
           inv.paymentType,
           projectInfo,
+          typeFacture,
+          numFacture,
+          statutPaiement,
+          totalPaye,
+          resteAPayer,
           format(new Date(inv.createdAt), "dd/MM/yyyy HH:mm"),
         ]
-          .map((field) => `"${field}"`)
+          .map((field) => `"${String(field)}"`)
           .join(",");
-      });
+      }));
 
       const csv = csvHeader + csvRows.join("\n");
 
@@ -1629,7 +1698,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[INFO] Payment added - Invoice: ${invoiceId} - Amount: ${amount} - User: ${userToken.name} - NewStatus: ${updatedInvoice?.paymentStatus}`);
 
-      // TODO: Send email notification
+      // Send email notification
+      try {
+        const userEmail = userToken?.email || 
+          (userToken.name === "Michael" ? "michael@filtreplante.com" : 
+           userToken.name === "Marine" ? "marine@filtreplante.com" : 
+           "fatou@filtreplante.com");
+        
+        // Get supplier name
+        const supplier = invoice.supplierId ? await storage.getSupplierById(invoice.supplierId) : null;
+        
+        // Calculate new totals
+        const newTotalPaid = await storage.getTotalPaidForInvoice(invoiceId);
+        const newRemaining = amountToPay - newTotalPaid;
+
+        await sendPaymentConfirmation(userEmail, userToken.name, userToken.token, {
+          supplierName: supplier?.name || "N/A",
+          invoiceNumber: invoice.invoiceNumber || null,
+          invoiceAmount: amountToPay.toLocaleString("fr-FR"),
+          paymentAmount: amount.toLocaleString("fr-FR"),
+          paymentDate: format(payDate, "d MMMM yyyy", { locale: fr }),
+          paymentType,
+          totalPaid: newTotalPaid.toLocaleString("fr-FR"),
+          remainingAmount: newRemaining.toLocaleString("fr-FR"),
+          paymentStatus: updatedInvoice?.paymentStatus || "partial",
+        });
+      } catch (emailError) {
+        console.error("Error sending payment email:", emailError);
+        // Don't fail the request if email fails
+      }
 
       res.status(201).json({
         success: true,
