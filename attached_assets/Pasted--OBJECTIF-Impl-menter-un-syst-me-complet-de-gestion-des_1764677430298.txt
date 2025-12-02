@@ -1,0 +1,1551 @@
+# OBJECTIF
+Implémenter un système complet de gestion des paiements multiples pour les FACTURES FOURNISSEUR uniquement (pas les dépenses)
+
+# CONTEXTE
+L'application distingue deux types de factures :
+- DÉPENSES : <500k FCFA, payées immédiatement, pas de BRS → PAS de gestion paiements multiples
+- FACTURES FOURNISSEUR : À régler ultérieurement, fournisseurs réguliers, avec BRS, >500k → Gestion paiements multiples
+
+Besoin de tracker chaque paiement avec son montant, sa date et son type de règlement.
+
+EXEMPLE D'USAGE :
+- Facture fournisseur de 100 000 F
+- Paiement 1 : 30 000 F le 01/12 par Wave Business
+- Paiement 2 : 40 000 F le 15/12 par Espèces
+- Paiement 3 : 30 000 F le 30/12 par Mobile Money
+- Statut : Soldée ✅
+
+# ARCHITECTURE BASE DE DONNÉES
+
+## 1. Modifications table `invoices`
+
+**Nouvelle colonne invoice_type :**
+```sql
+ALTER TABLE invoices ADD COLUMN invoice_type VARCHAR DEFAULT 'expense';
+invoice_type: varchar
+Valeurs possibles : "expense" | "supplier_invoice"
+Défaut : "expense"
+Logique :
+"expense" : Dépense simple, pas de gestion paiements multiples
+"supplier_invoice" : Facture fournisseur, gestion paiements multiples activée
+Nouvelle colonne payment_status :
+ALTER TABLE invoices ADD COLUMN payment_status VARCHAR DEFAULT 'unpaid';
+payment_status: varchar
+Valeurs possibles : "unpaid" | "partial" | "paid"
+Défaut : "unpaid"
+Logique :
+"unpaid" : Aucun paiement enregistré
+"partial" : Au moins 1 paiement mais total < montant à payer
+"paid" : Total des paiements = montant à payer (facture soldée)
+IMPORTANT : Ce champ est utilisé UNIQUEMENT pour invoice_type = "supplier_invoice"
+2. Nouvelle table payments
+Création :
+CREATE TABLE payments (
+  id SERIAL PRIMARY KEY,
+  invoice_id VARCHAR NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  amount_paid VARCHAR NOT NULL,
+  payment_date VARCHAR NOT NULL,
+  payment_type VARCHAR NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  created_by VARCHAR REFERENCES user_tokens(id)
+);
+
+CREATE INDEX idx_payments_invoice_id ON payments(invoice_id);
+Schéma Drizzle (shared/schema.ts) :
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: varchar("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  amountPaid: varchar("amount_paid").notNull(),
+  paymentDate: varchar("payment_date").notNull(),
+  paymentType: varchar("payment_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  createdBy: varchar("created_by").references(() => userTokens.id)
+});
+
+export const insertPaymentSchema = createInsertSchema(payments).pick({
+  invoiceId: true,
+  amountPaid: true,
+  paymentDate: true,
+  paymentType: true,
+  createdBy: true
+});
+Contraintes métier :
+amountPaid : Doit être > 0 et en format décimal (comme amountTTC)
+paymentDate : Format YYYY-MM-DD
+paymentType : Types existants selon l'utilisateur (Wave Business, Espèces, etc.)
+createdBy : User token ID de la personne qui enregistre le paiement
+3. Modification table invoices pour invoice_type
+Ajouter dans schema.ts :
+export const invoices = pgTable("invoices", {
+  // ... champs existants
+  invoiceType: varchar("invoice_type").default("expense"),
+  paymentStatus: varchar("payment_status").default("unpaid"),
+  // ... autres champs
+});
+SPÉCIFICATIONS FONCTIONNELLES
+1. Formulaire de création de facture (MODIFICATIONS)
+Nouveau champ "Type de facture" (EXISTANT dans l'UI)
+Actuellement présent dans le formulaire :
+Radio buttons : "Dépense" / "Facture Fournisseur"
+Descriptions claires pour chaque option
+Modification nécessaire :
+Sauvegarder ce choix dans la BDD via le nouveau champ invoice_type
+Si "Dépense" sélectionné → invoice_type = "expense"
+Si "Facture Fournisseur" sélectionné → invoice_type = "supplier_invoice"
+Section "Paiement" (NOUVELLE - uniquement pour Factures Fournisseur)
+Affichage conditionnel :
+Cette section s'affiche UNIQUEMENT si "Facture Fournisseur" est sélectionné
+Position : Après "Description" et AVANT "Type de règlement"
+Contenu de la section :
+1. Question : "Paiement réalisé à 100%"
+Type : Radio buttons (style identique à "Achat pour le stock")
+Options : Oui (défaut) / Non
+Label : "Paiement réalisé à 100%"
+2. Comportement si "Oui" sélectionné :
+Le champ "Type de règlement" reste visible
+Label devient : "Type de règlement du paiement complet"
+Date du paiement : Automatiquement = date de la facture
+Montant du paiement : Automatiquement = amountDisplayTTC
+Un paiement de 100% sera créé automatiquement lors de la soumission
+3. Comportement si "Non" sélectionné :
+Afficher section "Premier paiement" avec 3 champs :
+a) Montant payé (input number)
+Label : "Montant TTC du premier paiement (FCFA) *"
+Requis
+Validation :
+0
+<= amountDisplayTTC
+Message d'erreur : "Le montant ne peut pas dépasser le montant TTC de la facture"
+b) Date du paiement (input date)
+Label : "Date du paiement *"
+Requis
+Défaut : Date du jour (modifiable)
+Validation :
+= Date de la facture
+<= Date du jour
+c) Type de règlement du paiement (select)
+Label : "Type de règlement de ce paiement *"
+Options : Types de règlement de l'utilisateur (Wave Business, Espèces, etc.)
+Requis
+IMPORTANT : Clarification du champ "Type de règlement" :
+Si "Paiement 100%" = Oui → Un seul champ "Type de règlement" pour le paiement complet
+Si "Paiement 100%" = Non → Champ "Type de règlement de ce paiement" pour le premier paiement
+SUPPRIMER le champ "Type de règlement" global s'il est en doublon (à clarifier dans le code)
+Si "Dépense" sélectionnée
+Comportement actuel conservé :
+Pas de section "Paiement"
+Champ "Type de règlement" classique
+Soumission normale sans création de paiement
+Logique de soumission
+Actions backend :
+Si invoice_type = "expense" :
+Créer facture normalement
+paymentStatus reste null ou "unpaid" (non utilisé)
+Pas de création de paiement dans la table payments
+Si invoice_type = "supplier_invoice" :
+Créer la facture dans invoices avec payment_status calculé :
+Si paiement = 100% du montant à payer → payment_status = "paid"
+Si paiement < 100% → payment_status = "partial"
+Si aucun paiement → payment_status = "unpaid"
+Créer le(s) paiement(s) dans payments :
+Si "Oui" : 1 paiement avec amountPaid = amountDisplayTTC, date = date facture, type = type sélectionné
+Si "Non" : 1 paiement avec les données saisies
+Transaction SQL : Les 2 opérations doivent réussir ou échouer ensemble
+Montant de référence (IMPORTANT) :
+Les paiements soldent amountDisplayTTC (montant affiché, ce qui est réellement payé au fournisseur)
+Si BRS présent : amountDisplayTTC = montant payé, amountRealTTC = montant comptable
+Exemple : BRS 5%, facture affiche 90k, comptabilisé 94.7k → Les paiements soldent 90k
+2. Page "Mes factures" (MODIFICATIONS MAJEURES)
+Nouvelle colonne "Statut paiement" (UNIQUEMENT pour factures fournisseur)
+Affichage conditionnel par type :
+Si invoice_type = "expense" :
+Afficher colonne "Type de règlement" (comme actuellement)
+Pas de badge de statut paiement
+Pas de bouton "Ajouter un paiement"
+Si invoice_type = "supplier_invoice" :
+Afficher colonne "Statut paiement" avec badges :
+Facture soldée (payment_status = "paid") :
+✅ Soldée
+Badge vert (bg-teal-600)
+Facture partiellement payée (payment_status = "partial") :
+⚠️ Partiel: 30 000 / 100 000 F
+Badge orange (bg-orange-500)
+Afficher : Total payé / Montant à payer
+Facture non payée (payment_status = "unpaid") :
+❌ Non payé
+Badge rouge (bg-red-500)
+Calcul du total payé
+Logique backend :
+Pour chaque facture fournisseur, calculer :
+SELECT SUM(CAST(amount_paid AS DECIMAL)) as total_paid 
+FROM payments 
+WHERE invoice_id = X
+Retourner dans l'API : totalPaid et remainingAmount
+remainingAmount = amountDisplayTTC - totalPaid
+Bouton "Ajouter un paiement"
+Affichage conditionnel :
+Visible UNIQUEMENT si :
+invoice_type = "supplier_invoice"
+ET (payment_status = "partial" OU payment_status = "unpaid")
+ET createdBy = user connecté (seul le créateur de la facture)
+Masqué si payment_status = "paid" ou invoice_type = "expense"
+Design :
+Bouton secondaire avec icône : "💳 Ajouter un paiement"
+Position : Dans la ligne du tableau ou en action contextuelle
+Action au clic :
+Ouvrir une modaluvrir une modal "Ajouter un paiement"
+3. Modal "Ajouter un paiement" (NOUVEAU COMPOSANT)
+Structure de la modal
+Titre :
+Ajouter un paiement
+Facture #XXX - Fournisseur XXX
+Informations affichées :
+Montant TTC de la facture : 100 000 F
+Total déjà payé : 30 000 F
+Reste à payer : 70 000 F (en gras, couleur accent teal)
+Si BRS présent :
+Afficher aussi : "Montant comptable : 94 736,84 F (avec BRS 5%)"
+Formulaire dans la modal
+1. Montant de ce paiement (input number)
+Label : "Montant TTC de ce paiement (FCFA) *"
+Requis
+Placeholder : "Ex: 40000"
+Validation :
+Doit être > 0
+Doit être <= Reste à payer
+Message d'erreur : "Le montant ne peut pas dépasser le reste à payer (XXX F)"
+2. Date du paiement (input date)
+Label : "Date du paiement *"
+Requis
+Défaut : Date du jour
+Validation :
+Min : Date de création de la facture
+Max : Date du jour
+Message d'erreur si hors bornes
+3. Type de règlement (select)
+Label : "Type de règlement *"
+Options : Types de règlement disponibles pour l'utilisateur connecté
+Requis
+Défaut : Aucun (forcer le choix)
+Boutons
+"Annuler" (secondaire, ferme la modal)
+"Enregistrer le paiement" (primaire, soumet le formulaire)
+Logique de soumission
+Actions backend :
+Valider les données reçues
+Vérifier que l'utilisateur est bien le créateur de la facture
+Vérifier que payment_status != "paid"
+Créer le nouveau paiement dans payments
+Recalculer le total payé pour cette facture
+Mettre à jour payment_status dans invoices :
+Si nouveau total = amountDisplayTTC → payment_status = "paid"
+Sinon → payment_status = "partial"
+Envoyer email de confirmation
+Retourner la facture mise à jour avec tous ses paiements
+Actions frontend :
+Fermer la modal
+Rafraîchir la liste des factures
+Afficher toast de succès : "Paiement enregistré ✅"
+4. Détail d'une facture (NOUVELLE SECTION pour factures fournisseur)
+Section "Historique des paiements" (affichée uniquement si invoice_type = "supplier_invoice")
+Si facture non payée (payment_status = "unpaid")
+❌ Aucun paiement enregistré
+Reste à payer : 100 000 F
+
+[Bouton: Ajouter un paiement] (si user = créateur)
+Si facture partiellement payée (payment_status = "partial")
+Historique des paiements :
+
+┌──────────────────────────────────────────┐
+│ 01/12/2024 - 30 000 F                   │
+│ Wave Business                            │
+├──────────────────────────────────────────┤
+│ 15/12/2024 - 40 000 F                   │
+│ Espèces                                  │
+└──────────────────────────────────────────┘
+
+Total payé : 70 000 F
+Reste à payer : 30 000 F
+
+[Bouton: Ajouter un paiement] (si user = créateur)
+Si facture soldée (payment_status = "paid")
+✅ Facture soldée
+
+Historique des paiements :
+[Liste identique]
+
+Total payé : 100 000 F ✅
+Design :
+Tableau ou liste stylisée (cards)
+Chaque paiement : Date | Montant | Type
+Ordre : Chronologique (ancien → récent)
+Style cohérent avec le reste de l'app (teal/orange/vert)
+5. Filtres dans la page "Mes factures"
+Nouveau filtre "Statut de paiement"
+Emplacement :
+À côté des filtres existants
+Dropdown ou segmented control
+Options :
+Toutes les factures (défaut)
+Factures fournisseur soldées
+Factures fournisseur partielles
+Factures fournisseur non payées
+Dépenses (invoice_type = "expense")
+Logique backend :
+Endpoint GET /api/invoices?paymentStatus=paid|partial|unpaid&invoiceType=supplier_invoice|expense
+Filtrer sur invoices.payment_status ET invoices.invoice_type
+6. Emails de confirmation
+Email après création de facture FOURNISSEUR avec paiement
+Si paiement complet (100%) :
+Bonjour [Prénom],
+
+Votre facture fournisseur a bien été enregistrée et validée.
+
+Détails :
+- Fournisseur : XXX
+- Montant TTC : 100 000 F
+- Statut : Payée intégralement ✅
+- Date du paiement : 01/12/2024
+- Type de règlement : Wave Business
+
+Merci !
+Si paiement partiel :
+Bonjour [Prénom],
+
+Votre facture fournisseur a bien été enregistrée avec un paiement partiel.
+
+Détails :
+- Fournisseur : XXX
+- Montant TTC : 100 000 F
+- Premier paiement : 30 000 F ⚠️
+- Date du paiement : 01/12/2024
+- Type de règlement : Wave Business
+- Reste à payer : 70 000 F
+
+Vous pourrez ajouter les paiements suivants depuis l'application.
+
+Merci !
+Email après création de DÉPENSE
+Email actuel inchangé :
+Bonjour [Prénom],
+
+Votre dépense a bien été enregistrée.
+
+Détails :
+- Fournisseur : XXX
+- Montant TTC : 50 000 F
+- Type de règlement : Espèces
+
+Merci !
+Email après ajout d'un paiement (NOUVEAU)
+Bonjour [Prénom],
+
+Un nouveau paiement a été enregistré sur votre facture fournisseur.
+
+Facture :
+- Fournisseur : XXX
+- Montant TTC : 100 000 F
+
+Nouveau paiement :
+- Montant : 40 000 F
+- Date : 15/12/2024
+- Type : Espèces
+
+Situation :
+- Total payé : 70 000 F
+- Reste à payer : 30 000 F
+
+[Si soldée après ce paiement]
+✅ Cette facture est maintenant soldée !
+
+Merci !
+7. Exports CSV
+Export utilisateur (mes_factures_xxx.csv)
+Colonnes existantes conservées
+Nouvelles colonnes pour TOUTES les factures :
+Type de facture : "Dépense" | "Facture Fournisseur"
+Nouvelles colonnes pour FACTURES FOURNISSEUR uniquement :
+Statut paiement : "Soldée" | "Partielle" | "Non payée"
+Total payé (FCFA)
+Reste à payer (FCFA)
+Détail des paiements (jusqu'à 5) :
+Paiement 1 - Date
+Paiement 1 - Montant (FCFA)
+Paiement 1 - Type
+Paiement 2 - Date
+Paiement 2 - Montant (FCFA)
+Paiement 2 - Type
+Paiement 3 - Date
+Paiement 3 - Montant (FCFA)
+Paiement 3 - Type
+Paiement 4 - Date
+Paiement 4 - Montant (FCFA)
+Paiement 4 - Type
+Paiement 5 - Date
+Paiement 5 - Montant (FCFA)
+Paiement 5 - Type
+Logique :
+Si facture = dépense → Colonnes paiements vides
+Si facture fournisseur avec 2 paiements → Colonnes 1-2 remplies, 3-5 vides
+Ordre chronologique (plus ancien en premier)
+Export admin (factures_YYYY-MM-DD.csv)
+Même structure que l'export utilisateur
+Ajouter colonne "Utilisateur" en premier
+Export Axonaut (INCHANGÉ)
+Les exports Axonaut pour les 3 users restent inchangés :
+Montant TTC total (amountRealTTC si BRS, sinon amountTTC)
+Pas de détail des paiements
+Le suivi des paiements partiels reste interne à FiltrePlante
+Export Zoho Factures Fournisseurs (AJOUT détail paiements)
+Nouvelles colonnes à ajouter :
+Date premier paiement
+Date dernier paiement
+Statut paiement
+Nombre de paiements
+OU (alternative plus détaillée) :
+Même structure que CSV utilisateur avec détail des 5 paiements
+Export Zoho Dépenses : INCHANGÉ
+8. Modification d'une facture existante
+Règle de modification du montant TTC
+Si facture a déjà des paiements enregistrés (table payments) :
+Bloquer la modification du champ "Montant TTC"
+Afficher message : "Impossible de modifier le montant d'une facture avec des paiements enregistrés. Supprimez cette facture et recréez-la si nécessaire."
+Si facture n'a pas de paiements :
+Modification libre (comportement actuel)
+Modification du type de facture
+Règle :
+Ne PAS permettre de changer "Dépense" ↔ "Facture Fournisseur" après création
+Le champ "Type de facture" est en lecture seule lors de la modification
+9. Migration des données existantes
+Stratégie de migration
+Étape 1 : Ajouter colonnes
+ALTER TABLE invoices ADD COLUMN invoice_type VARCHAR DEFAULT 'expense';
+ALTER TABLE invoices ADD COLUMN payment_status VARCHAR DEFAULT 'unpaid';
+Étape 2 : Identifier les factures fournisseur
+Les factures fournisseur sont celles qui répondent à au moins un de ces critères :
+Montant TTC >= 500 000 F
+OU amountDisplayTTC != amountRealTTC (présence de BRS)
+OU fournisseur régulier (à définir : fréquence, volume ?)
+SQL suggéré :
+-- Mettre invoice_type = 'supplier_invoice' pour :
+-- 1. Factures >= 500k
+UPDATE invoices 
+SET invoice_type = 'supplier_invoice' 
+WHERE CAST(amount_ttc AS DECIMAL) >= 500000;
+
+-- 2. Factures avec BRS (si colonnes amountDisplayTTC/amountRealTTC existent)
+-- [À adapter selon structure actuelle]
+Étape 3 : Créer paiements automatiquement
+Pour TOUTES les factures (dépenses ET factures fournisseur), créer un paiement à 100% :
+INSERT INTO payments (invoice_id, amount_paid, payment_date, payment_type, created_by)
+SELECT 
+  id,
+  amount_ttc,  -- OU amountDisplayTTC si colonne existe
+  COALESCE(invoice_date, created_at)::date,
+  payment_type,
+  user_name  -- Adapter : récupérer le user_token.id correspondant au user_name
+FROM invoices;
+
+-- Mettre payment_status = 'paid' pour les factures fournisseur
+UPDATE invoices 
+SET payment_status = 'paid' 
+WHERE invoice_type = 'supplier_invoice';
+Résultat migration :
+Toutes les factures existantes ont un paiement à 100%
+Factures fournisseur → Statut "Soldée"
+Dépenses → Paiement créé mais payment_status non utilisé
+Historique préservé
+IMPORTANT : Tester la migration sur une copie de la BDD avant déploiement.
+MODIFICATIONS BACKEND
+Routes (server/routes.ts)
+Route POST /api/invoices (création)
+Modifications :
+Recevoir nouveau champ invoiceType depuis le formulaire
+Si invoiceType = "supplier_invoice" :
+Recevoir données du premier paiement (amountPaid, paymentDate, paymentType)
+Calculer payment_status :
+Si amountPaid = amountDisplayTTC → "paid"
+Si amountPaid < amountDisplayTTC → "partial"
+Si pas de paiement → "unpaid"
+Créer facture ET paiement dans une transaction
+Si invoiceType = "expense" :
+Créer facture normalement
+Ne PAS créer de paiement
+payment_status reste null ou "unpaid" (non utilisé)
+Retourner la facture créée
+Données reçues (exemple facture fournisseur avec paiement partiel) :
+{
+  "userName": "Marine",
+  "invoiceDate": "2024-12-01",
+  "supplierId": "uuid-123",
+  "category": "Fourniture Matériaux",
+  "amountTTC": "100000",
+  "invoiceType": "supplier_invoice",
+  "paymentFull": false,
+  "firstPayment": {
+    "amountPaid": "30000",
+    "paymentDate": "2024-12-01",
+    "paymentType": "Wave Business"
+  },
+  ...
+}
+Nouvelle route POST /api/payments (ajout paiement)
+Endpoint :
+POST /api/payments
+Authorization: Token required
+Données reçues :
+Invoice Id
+uuid-456
+Amount Paid
+40000
+Payment Date
+2024-12-15
+Payment Type
+Espèces
+Validations :
+Vérifier que la facture existe et invoice_type = "supplier_invoice"
+Vérifier que l'utilisateur connecté est le créateur de la facture
+Vérifier que payment_status != "paid"
+Calculer le reste à payer actuel (amountDisplayTTC - total déjà payé)
+Vérifier que amountPaid > 0 et <= reste à payer
+Vérifier que paymentDate >= date création facture et <= date du jour
+Actions :
+Créer le paiement dans payments avec created_by = user token ID
+Recalculer total payé pour cette facture
+Mettre à jour payment_status :
+Si total = amountDisplayTTC → "paid"
+Sinon → "partial"
+Envoyer email de confirmation
+Retourner la facture mise à jour avec tous ses paiements
+Réponse :
+{
+  "success": true,
+  "invoice": {
+    "id": "uuid-456",
+    "paymentStatus": "partial",
+    "totalPaid": "70000",
+    "remainingAmount": "30000",
+    "payments": [...]
+  }
+}
+Route GET /api/invoices (listing)
+Modifications :
+JOIN avec table payments pour calculer totalPaid par facture (uniquement pour factures fournisseur)
+Ajouter filtrage par paymentStatus et invoiceType (query params)
+Retourner pour chaque facture fournisseur :
+invoiceType
+paymentStatus
+totalPaid
+remainingAmount
+Optionnel : payments[] liste complète
+Exemple réponse :
+Item 1
+Id
+uuid-123
+Invoice Type
+supplier_invoice
+Amount T T C
+100000
+Amount Display T T C
+100000
+Payment Status
+partial
+Total Paid
+70000
+Remaining Amount
+30000
+Payments
+Item 1
+Id
+1
+Amount Paid
+30000
+Payment Date
+2024-12-01
+Payment Type
+Wave Business
+Item 2
+Id
+2
+Amount Paid
+40000
+Payment Date
+2024-12-15
+Payment Type
+Espèces
+Item 2
+Id
+uuid-456
+Invoice Type
+expense
+Amount T T C
+50000
+Payment Type
+Espèces
+Route GET /api/invoices/:id (détail)
+Modifications :
+Récupérer la facture
+Si invoice_type = "supplier_invoice" :
+Récupérer TOUS les paiements associés (ORDER BY payment_date ASC)
+Calculer totalPaid et remainingAmount
+Si invoice_type = "expense" :
+Retour standard sans paiements
+Retourner tout
+Route PUT /api/invoices/:id (modification)
+Nouvelles validations :
+Si la facture a des paiements (COUNT(*) FROM payments WHERE invoice_id = X > 0) :
+Bloquer la modification de amountTTC et amountDisplayTTC
+Retourner erreur 400 : "Impossible de modifier le montant d'une facture avec des paiements enregistrés"
+Ne PAS permettre de modifier invoice_type
+Reste des modifications permises normalement
+Routes exports CSV (modifications)
+Export utilisateur GET /api/export/user/:userName
+Modifier fonction generateCSV pour inclure colonnes paiements
+Récupérer les paiements de chaque facture
+Générer colonnes dynamiques (Paiement 1-5)
+Export admin GET /api/export/admin
+Même chose + colonne utilisateur
+Exports Axonaut (3 routes) : INCHANGÉS
+Export Zoho Factures Fournisseurs : AJOUTER colonnes paiements
+Storage (server/storage.ts)
+Méthode createInvoiceWithPayment (NOUVELLE)
+Signature :
+async createInvoiceWithPayment(
+  invoiceData: InsertInvoice,
+  paymentData?: InsertPayment
+): Promise<Invoice>
+Logique :
+Démarrer transaction
+Créer facture avec invoice_type et payment_status calculé
+Si paymentData fourni (facture fournisseur avec paiement) :
+Créer paiement dans table payments
+Commit transaction
+Retourner facture créée
+Méthode addPayment (NOUVELLE)
+Signature :
+async addPayment(
+  paymentData: InsertPayment
+): Promise<{ invoice: Invoice, payment: Payment }>
+Logique :
+Vérifier permissions (user = créateur facture)
+Créer le paiement
+Calculer nouveau total payé (SUM amount_paid)
+Mettre à jour payment_status de la facture :
+Si total = amountDisplayTTC → "paid"
+Sinon → "partial"
+Retourner facture + paiement créé
+Méthode getInvoicesByUser (MODIFICATION)
+Ajouts :
+LEFT JOIN payments pour factures fournisseur
+Calculer totalPaid avec SUM(CAST(amount_paid AS DECIMAL))
+Calculer remainingAmount = amountDisplayTTC - totalPaid
+Supporter filtrage par paymentStatus et invoiceType
+SQL suggéré :
+SELECT 
+  i.*,
+  COALESCE(SUM(CAST(p.amount_paid AS DECIMAL)), 0) as total_paid,
+  CASE 
+    WHEN i.invoice_type = 'supplier_invoice' 
+    THEN CAST(i.amount_display_ttc AS DECIMAL) - COALESCE(SUM(CAST(p.amount_paid AS DECIMAL)), 0)
+    ELSE NULL
+  END as remaining_amount
+FROM invoices i
+LEFT JOIN payments p ON i.id = p.invoice_id
+WHERE i.user_name = ?
+GROUP BY i.id
+Méthode getInvoiceWithPayments (NOUVELLE)
+Signature :
+async getInvoiceWithPayments(invoiceId: string): Promise<InvoiceWithPayments>
+Logique :
+Récupérer facture
+Si invoice_type = "supplier_invoice" :
+Récupérer tous les paiements (ORDER BY payment_date ASC, created_at ASC)
+Calculer totalPaid et remainingAmount
+Retourner objet complet
+Méthode updateInvoice (MODIFICATION)
+Ajouts :
+Avant mise à jour, vérifier si paiements existent :
+SELECT COUNT(*) FROM payments WHERE invoice_id = ?
+Si count > 0 ET modification de amountTTC/amountDisplayTTC demandée :
+Lever erreur "Cannot modify amount with existing payments"
+Sinon : Update normal
+Emails (server/email.ts)
+Template "Nouvelle facture fournisseur" (MODIFIER existant)
+Conditions :
+Si invoice_type = "supplier_invoice" → Nouveau template avec infos paiement
+Si invoice_type = "expense" → Template actuel inchangé
+Nouveau template facture fournisseur avec paiement complet :
+Sujet : Facture fournisseur enregistrée - [Fournisseur] - [Montant] F
+
+Corps : [Voir section 6 emails]
+Nouveau template facture fournisseur avec paiement partiel :
+Sujet : Facture fournisseur enregistrée (paiement partiel) - [Fournisseur] - [Montant] F
+
+Corps : [Voir section 6 emails]
+Nouveau template "Nouveau paiement enregistré"
+Créer template dédié (voir section 6)
+Trigger : Après succès de POST /api/payments
+MODIFICATIONS FRONTEND
+Composant InvoiceForm (client/src/components/InvoiceForm.tsx)
+Modifications du formulaire
+1. Champ "Type de facture" (EXISTANT) :
+Déjà présent dans l'UI avec radio buttons
+Ajouter gestion d'état : const [invoiceType, setInvoiceType] = useState("expense")
+Envoyer cette valeur au backend lors de la soumission
+2. Section "Paiement" (NOUVELLE - conditionnelle) :
+État du formulaire - Nouveaux champs :
+const [invoiceType, setInvoiceType] = useState("expense");
+const [paymentFull, setPaymentFull] = useState(true);
+const [firstPaymentAmount, setFirstPaymentAmount] = useState("");
+const [firstPaymentDate, setFirstPaymentDate] = useState(todayDate);
+const [firstPaymentType, setFirstPaymentType] = useState("");
+Affichage conditionnel :
+{invoiceType === "supplier_invoice" && (
+  <div className="space-y-4 border-t pt-4">
+    <h3>Informations de paiement</h3>
+    
+    {/* Radio: Paiement 100% */}
+    <RadioGroup value={paymentFull ? "true" : "false"} onChange={...}>
+      <div>
+        <RadioGroupItem value="true" id="payment-full-yes" />
+        <Label htmlFor="payment-full-yes">Oui</Label>
+      </div>
+      <div>
+        <RadioGroupItem value="false" id="payment-full-no" />
+        <Label htmlFor="payment-full-no">Non</Label>
+      </div>
+    </RadioGroup>
+    
+    {/* Section premier paiement si Non */}
+    {!paymentFull && (
+      <div className="space-y-4 pl-4 border-l-2">
+        <h4>Premier paiement</h4>
+        
+        {/* Montant payé */}
+        <Input
+          label="Montant TTC du premier paiement (FCFA) *"
+          type="number"
+          value={firstPaymentAmount}
+          onChange={(e) => setFirstPaymentAmount(e.target.value)}
+        />
+        
+        {/* Date paiement */}
+        <Input
+          label="Date du paiement *"
+          type="date"
+          value={firstPaymentDate}
+          onChange={(e) => setFirstPaymentDate(e.target.value)}
+        />
+        
+        {/* Type règlement */}
+        <Select
+          label="Type de règlement de ce paiement *"
+          value={firstPaymentType}
+          onChange={setFirstPaymentType}
+        >
+          {/* Options types règlement user */}
+        </Select>
+      </div>
+    )}
+  </div>
+)}
+Validation formulaire :
+// Si facture fournisseur ET paiement partiel
+if (invoiceType === "supplier_invoice" && !paymentFull) {
+  // firstPaymentAmount requis, > 0, <= amountDisplayTTC
+  if (!firstPaymentAmount || parseFloat(firstPaymentAmount) <= 0) {
+    // Erreur
+  }
+  if (parseFloat(firstPaymentAmount) > parseFloat(amountDisplayTTC)) {
+    // Erreur
+  }
+  // firstPaymentDate requis, >= invoiceDate, <= today
+  // firstPaymentType requis
+}
+Soumission :
+const submitData = {
+  ...formData,
+  invoiceType,
+  ...(invoiceType === "supplier_invoice" && {
+    paymentFull,
+    firstPayment: paymentFull ? {
+      amountPaid: amountDisplayTTC,
+      paymentDate: invoiceDate,
+      paymentType: paymentType  // Le type de règlement sélectionné
+    } : {
+      amountPaid: firstPaymentAmount,
+      paymentDate: firstPaymentDate,
+      paymentType: firstPaymentType
+    }
+  })
+};
+Nouveau composant AddPaymentModal
+Emplacement :
+client/src/components/AddPaymentModal.tsx
+Props :
+interface AddPaymentModalProps {
+  invoice: InvoiceWithPayments;
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (updatedInvoice: Invoice) => void;
+}
+État interne :
+const [amountPaid, setAmountPaid] = useState("");
+const [paymentDate, setPaymentDate] = useState(todayDate);
+const [paymentType, setPaymentType] = useState("");
+const [isSubmitting, setIsSubmitting] = useState(false);
+Calculs :
+const totalPaid = invoice.totalPaid || 0;
+const remaining = parseFloat(invoice.amountDisplayTTC) - totalPaid;
+Structure UI :
+<Dialog open={isOpen} onOpenChange={onClose}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Ajouter un paiement</DialogTitle>
+      <DialogDescription>
+        Facture #{invoice.id} - {invoice.supplierName}
+      </DialogDescription>
+    </DialogHeader>
+    
+    {/* Infos facture */}
+    <div className="space-y-2">
+      <p>Montant TTC : {invoice.amountDisplayTTC} F</p>
+      <p>Total déjà payé : {totalPaid} F</p>
+      <p className="font-bold text-teal-600">
+        Reste à payer : {remaining} F
+      </p>
+      {invoice.amountRealTTC && (
+        <p className="text-sm text-muted-foreground">
+          Montant comptable : {invoice.amountRealTTC} F (avec BRS)
+        </p>
+      )}
+    </div>
+    
+    {/* Formulaire */}
+    <div className="space-y-4">
+      <Input
+        label="Montant de ce paiement (FCFA) *"
+        type="number"
+        value={amountPaid}
+        onChange={(e) => setAmountPaid(e.target.value)}
+        max={remaining}
+      />
+      
+      <Input
+        label="Date du paiement *"
+        type="date"
+        value={paymentDate}
+        onChange={(e) => setPaymentDate(e.target.value)}
+      />
+      
+      <Select
+        label="Type de règlement *"
+        value={paymentType}
+        onChange={setPaymentType}
+      >
+        {/* Options types user */}
+      </Select>
+    </div>
+    
+    <DialogFooter>
+      <Button variant="outline" onClick={onClose}>
+        Annuler
+      </Button>
+      <Button onClick={handleSubmit} disabled={isSubmitting}>
+        {isSubmitting ? "Enregistrement..." : "Enregistrer le paiement"}
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+Validation :
+const handleSubmit = async () => {
+  // Validation
+  const amount = parseFloat(amountPaid);
+  if (isNaN(amount) || amount <= 0) {
+    toast.error("Montant invalide");
+    return;
+  }
+  if (amount > remaining) {
+    toast.error(`Le montant ne peut pas dépasser ${remaining} F`);
+    return;
+  }
+  if (!paymentDate || !paymentType) {
+    toast.error("Tous les champs sont requis");
+    return;
+  }
+  
+  setIsSubmitting(true);
+  try {
+    const response = await apiRequest("POST", "/api/payments", {
+      invoiceId: invoice.id,
+      amountPaid,
+      paymentDate,
+      paymentType
+    });
+    
+    toast.success("Paiement enregistré ✅");
+    onSuccess(response.invoice);
+    onClose();
+  } catch (error) {
+    toast.error(error.message);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+Page TrackingPage (client/src/pages/Tracking.tsx)
+Modifications majeures :
+1. Colonne dynamique selon type de facture
+Dans le tableau :
+<TableHead>
+  {/* Colonnes existantes */}
+  <TableCell>Type</TableCell>
+  <TableCell>Statut / Règlement</TableCell>
+  <TableCell>Actions</TableCell>
+</TableHead>
+
+<TableBody>
+  {invoices.map((invoice) => (
+    <TableRow key={invoice.id}>
+      {/* ... autres colonnes */}
+      
+      {/* Type */}
+      <TableCell>
+        {invoice.invoiceType === "supplier_invoice" 
+          ? "Facture Fournisseur" 
+          : "Dépense"}
+      </TableCell>
+      
+      {/* Statut/Règlement */}
+      <TableCell>
+        {invoice.invoiceType === "supplier_invoice" ? (
+          // Badge statut paiement
+          invoice.paymentStatus === "paid" ? (
+            <Badge className="bg-teal-600">✅ Soldée</Badge>
+          ) : invoice.paymentStatus === "partial" ? (
+            <Badge className="bg-orange-500">
+              ⚠️ Partiel: {invoice.totalPaid} / {invoice.amountDisplayTTC} F
+            </Badge>
+          ) : (
+            <Badge className="bg-red-500">❌ Non payé</Badge>
+          )
+        ) : (
+          // Type de règlement pour dépenses
+          <span>{invoice.paymentType}</span>
+        )}
+      </TableCell>
+      
+      {/* Actions */}
+      <TableCell>
+        {invoice.invoiceType === "supplier_invoice" && 
+         invoice.paymentStatus !== "paid" &&
+         invoice.createdBy === currentUser.id && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openAddPaymentModal(invoice)}
+          >
+            💳 Ajouter un paiement
+          </Button>
+        )}
+      </TableCell>
+    </TableRow>
+  ))}
+</TableBody>
+2. Filtre statut paiement
+Nouveau dropdown :
+<Select
+  value={paymentStatusFilter}
+  onValueChange={setPaymentStatusFilter}
+>
+  <SelectTrigger>
+    <SelectValue placeholder="Filtrer par statut..." />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="all">Toutes les factures</SelectItem>
+    <SelectItem value="supplier_invoice_paid">Factures fournisseur soldées</SelectItem>
+    <SelectItem value="supplier_invoice_partial">Factures fournisseur partielles</SelectItem>
+    <SelectItem value="supplier_invoice_unpaid">Factures fournisseur non payées</SelectItem>
+    <SelectItem value="expense">Dépenses</SelectItem>
+  </SelectContent>
+</Select>
+Logique :
+const filteredInvoices = invoices.filter((invoice) => {
+  if (paymentStatusFilter === "all") return true;
+  if (paymentStatusFilter === "expense") return invoice.invoiceType === "expense";
+  if (paymentStatusFilter.startsWith("supplier_invoice")) {
+    const status = paymentStatusFilter.replace("supplier_invoice_", "");
+    return invoice.invoiceType === "supplier_invoice" && invoice.paymentStatus === status;
+  }
+  return true;
+});
+3. Modal AddPayment
+État :
+const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+const [isAddPaymentModalOpen, setIsAddPaymentModalOpen] = useState(false);
+
+const openAddPaymentModal = (invoice: Invoice) => {
+  setSelectedInvoice(invoice);
+  setIsAddPaymentModalOpen(true);
+};
+
+const handlePaymentSuccess = (updatedInvoice: Invoice) => {
+  // Rafraîchir la liste ou mettre à jour l'état React
+  queryClient.invalidateQueries(["/api/invoices"]);
+  setIsAddPaymentModalOpen(false);
+};
+Rendu :
+{selectedInvoice && (
+  <AddPaymentModal
+    invoice={selectedInvoice}
+    isOpen={isAddPaymentModalOpen}
+    onClose={() => setIsAddPaymentModalOpen(false)}
+    onSuccess={handlePaymentSuccess}
+  />
+)}
+4. Section détail facture (si modal/page détail existe)
+Ajouter section "Historique des paiements" :
+{invoice.invoiceType === "supplier_invoice" && (
+  <Card className="p-4">
+    <h3 className="font-semibold mb-4">Historique des paiements</h3>
+    
+    {invoice.payments && invoice.payments.length > 0 ? (
+      <>
+        <div className="space-y-2">
+          {invoice.payments.map((payment) => (
+            <div key={payment.id} className="border-l-2 pl-4 py-2">
+              <p className="font-medium">
+                {formatDate(payment.paymentDate)} - {payment.amountPaid} F
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {payment.paymentType}
+              </p>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-4 pt-4 border-t">
+          <p>Total payé : <span className="font-bold">{invoice.totalPaid} F</span></p>
+          {invoice.paymentStatus !== "paid" && (
+            <p>Reste à payer : <span className="font-bold text-orange-500">{invoice.remainingAmount} F</span></p>
+          )}
+        </div>
+        
+        {invoice.paymentStatus !== "paid" && invoice.createdBy === currentUser.id && (
+          <Button
+            className="mt-4 w-full"
+            onClick={() => openAddPaymentModal(invoice)}
+          >
+            Ajouter un paiement
+          </Button>
+        )}
+      </>
+    ) : (
+      <div className="text-center py-4">
+        <p className="text-muted-foreground">❌ Aucun paiement enregistré</p>
+        <p className="font-bold mt-2">Reste à payer : {invoice.amountDisplayTTC} F</p>
+        {invoice.createdBy === currentUser.id && (
+          <Button
+            className="mt-4"
+            onClick={() => openAddPaymentModal(invoice)}
+          >
+            Ajouter un paiement
+          </Button>
+        )}
+      </div>
+    )}
+  </Card>
+)}
+Types (client/src/lib/types.ts ou shared)
+Nouveaux types :
+export type InvoiceType = "expense" | "supplier_invoice";
+export type PaymentStatus = "unpaid" | "partial" | "paid";
+
+export interface Payment {
+  id: number;
+  invoiceId: string;
+  amountPaid: string;
+  paymentDate: string;
+  paymentType: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface InvoiceWithPayments extends Invoice {
+  invoiceType: InvoiceType;
+  paymentStatus?: PaymentStatus;
+  totalPaid?: number;
+  remainingAmount?: number;
+  payments?: Payment[];
+}
+ORDRE D'IMPLÉMENTATION RECOMMANDÉ
+PHASE 1 - Base de données et backend (2-3h)
+Migrations BDD
+Ajouter colonne invoice_type à invoices
+Ajouter colonne payment_status à invoices
+Créer table payments
+Créer index sur payments.invoice_id
+Push migration Drizzle
+Schémas Drizzle (shared/schema.ts)
+Modifier schéma invoices (2 nouvelles colonnes)
+Créer schéma payments
+Créer types insertPaymentSchema, etc.
+Storage (server/storage.ts)
+createInvoiceWithPayment()
+addPayment()
+getInvoicesByUser() modifié avec JOIN payments
+getInvoiceWithPayments()
+updateInvoice() modifié avec validation paiements
+Routes (server/routes.ts)
+Modifier POST /api/invoices pour gérer invoice_type + premier paiement
+Créer POST /api/payments
+Modifier GET /api/invoices pour inclure totalPaid/remainingAmount
+Modifier GET /api/invoices/:id pour inclure paiements
+Modifier PUT /api/invoices/:id pour bloquer modification montant
+Modifier exports CSV pour colonnes paiements
+Emails (server/email.ts)
+Template "Nouvelle facture fournisseur avec paiement"
+Template "Nouveau paiement enregistré"
+PHASE 2 - Frontend création (1-2h)
+InvoiceForm (client/src/components/InvoiceForm.tsx)
+Ajouter état invoiceType
+Section "Paiement" conditionnelle (si supplier_invoice)
+Radio "Paiement 100%" Oui/Non
+Section "Premier paiement" conditionnelle
+Validation formulaire
+Modification soumission pour envoyer données paiement
+PHASE 3 - Frontend affichage (1-2h)
+AddPaymentModal (client/src/components/AddPaymentModal.tsx)
+NOUVEAU composant complet
+Formulaire + validation
+Intégration API POST /api/payments
+Gestion succès/erreurs
+TrackingPage (client/src/pages/Tracking.tsx)
+Colonne "Type" (Dépense / Facture Fournisseur)
+Colonne "Statut" avec badges (Soldée / Partiel / Non payé)
+Bouton "Ajouter un paiement" conditionnel
+Filtre par statut paiement
+Intégration modal AddPayment
+Section "Historique des paiements" dans le détail
+Types (client/src/lib/types.ts)
+Types Payment, InvoiceType, PaymentStatus, InvoiceWithPayments
+PHASE 4 - Migration données (30min)
+Script de migration
+Identifier factures fournisseur vs dépenses
+Créer paiements automatiques pour toutes les factures
+Mettre payment_status = "paid"
+PHASE 5 - Tests (1-2h)
+Tests manuels complets (voir checklist)
+POINTS D'ATTENTION CRITIQUES
+Transactions SQL obligatoires
+Créer facture + premier paiement = 1 transaction atomique
+Échec d'une opération = rollback total
+Montant de référence (CRUCIAL)
+Les paiements soldent TOUJOURS amountDisplayTTC (montant payé au fournisseur)
+Si BRS présent : amountDisplayTTC ≠ amountRealTTC
+Exemple : BRS 5%, facture 90k affiché, 94.7k comptable → Paiements soldent 90k
+Scope limité aux factures fournisseur
+Vérifier invoice_type = "supplier_invoice" dans toutes les routes paiements
+Les dépenses ne doivent JAMAIS avoir de paiements dans la table payments
+Permissions
+Seul le créateur de la facture peut ajouter un paiement
+Vérifier côté backend (pas seulement masquer le bouton)
+Utiliser user_tokens.id pour les références (pas user_name)
+Validation montants
+Un paiement ne peut JAMAIS dépasser le reste à payer
+Gérer les arrondis : 70 000,00 + 30 000,00 = 100 000,00 exactement
+Utiliser CAST(amount AS DECIMAL) dans les calculs SQL
+Dates de paiement
+Minimum : Date de création de la facture
+Maximum : Date du jour
+Format cohérent : YYYY-MM-DD (ISO 8601)
+Calcul du payment_status
+Toujours recalculer après ajout de paiement
+Ne jamais faire confiance au frontend
+Comparaison : ROUND(totalPaid, 2) >= ROUND(amountDisplayTTC, 2)
+Exports CSV
+Tester avec 0, 1, 3, 5, 10 paiements
+Colonnes paiements vides pour les dépenses
+Excel/LibreOffice doit ouvrir proprement
+Ordre chronologique des paiements
+UX Mobile
+Modal "Ajouter un paiement" responsive
+Input date natif sur mobile
+Clavier numérique pour montants
+Boutons tactiles (min 44px)
+Migration données existantes
+TESTER sur copie de la BDD d'abord
+Backup avant migration
+Vérifier que toutes les factures ont bien un paiement créé
+Vérifier correspondance user_name → user_tokens.id
+Types de règlement
+Garder le système actuel (Wave Business, Espèces, etc.)
+Chaque user a ses types
+Pas de liste globale unifiée
+Emails
+Envoyer APRÈS succès complet (pas avant)
+Gérer échec envoi email (logger mais ne pas bloquer)
+Différencier emails dépenses vs factures fournisseur
+Performance
+JOIN payments peut être lourd
+Indexer payments.invoice_id
+Utiliser LEFT JOIN (pas INNER) pour inclure factures sans paiements
+Limiter le nombre de paiements affichés si nécessaire (pagination ?)
+Modification de factures
+Bloquer modification montant si paiements existent
+Message d'erreur clair
+Ne pas permettre de changer invoice_type après création
+FICHIERS À MODIFIER/CRÉER
+Backend
+Modifications :
+shared/schema.ts (schémas invoices + nouvelle table payments)
+db/migrations/XXXX_add_payments.sql (nouvelle migration)
+server/storage.ts (nouvelles méthodes + modifications)
+server/routes.ts (modifications routes + nouvelle route payments)
+server/email.ts (templates emails)
+Création :
+Aucun nouveau fichier backend (tout dans l'existant)
+Frontend
+Modifications :
+client/src/components/InvoiceForm.tsx (modifications majeures)
+client/src/pages/Tracking.tsx (modifications majeures)
+client/src/lib/types.ts (nouveaux types)
+Création :
+client/src/components/AddPaymentModal.tsx (NOUVEAU)
+client/src/hooks/usePayments.ts (NOUVEAU, optionnel mais recommandé)
+Styles
+Badges pour statuts paiement (utiliser classes Tailwind existantes)
+Modal AddPayment (composant Dialog de shadcn/ui)
+VALIDATION BACKEND - Exemples de code
+Validation ajout paiement (POST /api/payments)
+// Pseudo-code de validation
+async function validateAddPayment(invoiceId, amountPaid, paymentDate, userTokenId) {
+  // 1. Facture existe et est de type fournisseur ?
+  const invoice = await db.getInvoice(invoiceId);
+  if (!invoice) throw new Error("Facture introuvable");
+  if (invoice.invoiceType !== "supplier_invoice") {
+    throw new Error("Seules les factures fournisseur peuvent avoir des paiements multiples");
+  }
+  
+  // 2. User autorisé (créateur de la facture) ?
+  if (invoice.createdBy !== userTokenId) {
+    throw new Error("Seul le créateur de la facture peut ajouter un paiement");
+  }
+  
+  // 3. Facture déjà soldée ?
+  if (invoice.paymentStatus === "paid") {
+    throw new Error("Cette facture est déjà soldée");
+  }
+  
+  // 4. Calcul reste à payer
+  const paymentsResult = await db.query(`
+    SELECT SUM(CAST(amount_paid AS DECIMAL)) as total 
+    FROM payments 
+    WHERE invoice_id = $1
+  `, [invoiceId]);
+  
+  const totalPaid = paymentsResult.rows[0]?.total || 0;
+  const amountToPay = parseFloat(invoice.amountDisplayTTC);
+  const remaining = amountToPay - totalPaid;
+  
+  // 5. Montant valide ?
+  const amount = parseFloat(amountPaid);
+  if (isNaN(amount) || amount <= 0) {
+    throw new Error("Le montant doit être supérieur à 0");
+  }
+  if (amount > remaining) {
+    throw new Error(`Le montant ne peut pas dépasser ${remaining.toFixed(2)} F`);
+  }
+  
+  // 6. Date valide ?
+  const payDate = new Date(paymentDate);
+  const invoiceDate = new Date(invoice.invoiceDate);
+  const today = new Date();
+  
+  if (payDate < invoiceDate) {
+    throw new Error("La date de paiement ne peut pas être antérieure à la date de la facture");
+  }
+  if (payDate > today) {
+    throw new Error("La date de paiement ne peut pas être dans le futur");
+  }
+  
+  // OK, créer le paiement
+  return { invoice, amount, remaining };
+}
+Calcul du payment_status
+function calculatePaymentStatus(totalPaid: number, amountToPay: number): PaymentStatus {
+  const paid = parseFloat(totalPaid.toFixed(2));
+  const toPay = parseFloat(amountToPay.toFixed(2));
+  
+  if (paid === 0) return "unpaid";
+  if (paid >= toPay) return "paid";
+  return "partial";
+}
+SÉCURITÉ
+Authentification : Tous les endpoints /api/payments nécessitent un token valide
+Autorisation : Vérifier que userTokenId = invoice.createdBy avant toute action
+Validation : Ne JAMAIS faire confiance aux données frontend
+SQL Injection : Utiliser Drizzle ORM (protection native) + prepared statements
+XSS : React échappe automatiquement, mais attention aux dangerouslySetInnerHTML
+CSRF : Pas de cookies, donc protection native (token bearer)
+LOGS & MONITORING
+Événements à logger :
+Création facture fournisseur avec paiement
+Création dépense (log type "expense")
+Ajout d'un paiement
+Facture passée à "paid" (soldée)
+Échecs de validation (tentative montant > reste, user non autorisé)
+Tentative ajout paiement sur facture soldée
+Échecs d'envoi email
+Format log suggéré :
+[INFO] Invoice created - Type: supplier_invoice - ID: xxx - Amount: 100000 - FirstPayment: 30000
+[INFO] Payment added - Invoice: xxx - Amount: 40000 - User: yyy - NewStatus: partial
+[INFO] Invoice paid in full - Invoice: xxx - TotalPayments: 100000
+[WARNING] Payment validation failed - Invoice: xxx - Reason: Amount exceeds remaining
+[WARNING] Unauthorized payment attempt - Invoice: xxx - User: yyy - Owner: zzz
+[ERROR] Email send failed - Invoice: xxx - Payment: 789
+COMPATIBILITÉ & ROLLBACK
+En cas de problème :
+La table payments est indépendante (peut être droppée)
+Supprimer les colonnes invoice_type et payment_status ramène au comportement d'avant
+Les dépenses ne sont pas affectées par les paiements
+Migration réversible (backup de la BDD)
+Rollback SQL :
+DROP TABLE payments;
+ALTER TABLE invoices DROP COLUMN invoice_type;
+ALTER TABLE invoices DROP COLUMN payment_status;
+MÉTRIQUES DE SUCCÈS
+Après déploiement, vérifier :
+Toutes les factures existantes ont un type (expense ou supplier_invoice)
+Toutes les factures ont au moins 1 paiement dans la table payments
+Les factures fournisseur ont un payment_status cohérent
+Les exports CSV contiennent les colonnes paiements
+Les emails mentionnent les paiements partiels si applicable
+Aucune erreur SQL (N+1 queries, index manquants)
+Performance acceptable (< 1s pour GET /api/invoices avec 100+ factures)
+DOCUMENTATION UTILISATEUR (À CRÉER)
+Pour l'équipe FiltrePlante :
+"Comment soumettre une facture fournisseur avec paiement partiel"
+"Comment ajouter un paiement sur une facture existante"
+"Différence entre Dépense et Facture Fournisseur"
+"Comment voir l'historique des paiements d'une facture"
+"Que faire si je me suis trompé dans un paiement" (suppression non possible, créer ticket admin)
+
+---
+
+## ✅ CHECKLIST POST-BUILD COMPLÈTE
+
+### Base de données
+- [ ] Table `payments` créée avec contraintes
+- [ ] Colonnes `invoice_type` et `payment_status` ajoutées à `invoices`
+- [ ] Index créé sur `payments.invoice_id`
+- [ ] Migration exécutée sans erreur
+- [ ] Toutes les factures existantes ont un `invoice_type` défini
+
+### Backend - Création facture
+- [ ] POST /api/invoices sauvegarde `invoice_type`
+- [ ] Si dépense : Pas de création de paiement
+- [ ] Si facture fournisseur avec paiement : Transaction facture + paiement
+- [ ] `payment_status` calculé correctement (paid/partial/unpaid)
+- [ ] Email différencié selon type (dépense vs facture fournisseur)
+
+### Backend - Ajout paiement
+- [ ] POST /api/payments fonctionne
+- [ ] Validation : user autorisé (createdBy)
+- [ ] Validation : invoice_type = "supplier_invoice"
+- [ ] Validation : montant <= reste à payer
+- [ ] Validation : date entre création facture et aujourd'hui
+- [ ] payment_status mis à jour automatiquement
+- [ ] Email "Nouveau paiement" envoyé
+
+### Backend - Listing
+- [ ] GET /api/invoices retourne totalPaid et remainingAmount pour factures fournisseur
+- [ ] Filtre par paymentStatus et invoiceType fonctionne
+- [ ] Les dépenses n'ont pas de champs totalPaid/remainingAmount
+- [ ] Performances correctes (pas de N+1 queries)
+
+### Backend - Exports CSV
+- [ ] Colonnes paiements ajoutées (Date/Montant/Type × 5)
+- [ ] Export avec dépense : colonnes paiements vides
+- [ ] Export avec 3 paiements : données correctes dans colonnes 1-3
+- [ ] Export Axonaut inchangé (montant TTC total)
+- [ ] Export Zoho Factures Fournisseurs : colonnes paiements ajoutées
+
+### Frontend - Création facture
+- [ ] Champ "Type de facture" enregistre invoice_type en BDD
+- [ ] Section "Paiement" visible UNIQUEMENT si "Facture Fournisseur"
+- [ ] Radio "Paiement 100%" (Oui/Non) fonctionne
+- [ ] Section "Premier paiement" apparaît/disparaît selon sélection
+- [ ] Animation smooth (pas de saut)
+- [ ] Validation : montant partiel <= amountDisplayTTC
+- [ ] Date par défaut = date facture mais modifiable
+- [ ] Types de règlement : liste selon user
+- [ ] Soumission dépense : Comportement actuel préservé
+- [ ] Soumission facture fournisseur 100% : Paiement automatique créé
+- [ ] Soumission facture fournisseur partiel : Premier paiement créé
+- [ ] Toast de succès affiché
+
+### Frontend - Page "Mes factures"
+- [ ] Colonne "Type" affiche "Dépense" ou "Facture Fournisseur"
+- [ ] Pour dépenses : Affichage type de règlement (comme avant)
+- [ ] Pour factures fournisseur : Badge statut paiement
+- [ ] Badge "Soldée" (vert) affiché correctement
+- [ ] Badge "Partiel: XX / XX F" (orange) avec calculs corrects
+- [ ] Badge "Non payé" (rouge) si aucun paiement
+- [ ] Bouton "Ajouter un paiement" visible UNIQUEMENT sur factures fournisseur partielles/non payées
+- [ ] Bouton masqué si dépense
+- [ ] Bouton masqué si facture soldée
+- [ ] Bouton masqué si pas le créateur de la facture
+- [ ] Filtre "Statut paiement" fonctionne (Toutes/Dépenses/Factures fournisseur soldées/etc.)
+
+### Frontend - Modal ajout paiement
+- [ ] Modal s'ouvre au clic sur bouton
+- [ ] Affichage montant TTC, total payé, reste à payer corrects
+- [ ] Si BRS : Mention du montant comptable
+- [ ] Validation : montant > 0 et <= reste
+- [ ] Validation : date entre création et aujourd'hui
+- [ ] Message d'erreur clair si validation échoue
+- [ ] Soumission réussie → modal se ferme
+- [ ] Toast de succès affiché
+- [ ] Liste des factures se rafraîchit automatiquement
+
+### Frontend - Détail facture
+- [ ] Section "Historique des paiements" affichée pour factures fournisseur
+- [ ] Liste des paiements triée par date (ancien → récent)
+- [ ] Total payé et reste à payer corrects
+- [ ] Si soldée : Badge "Facture soldée ✅"
+- [ ] Si partielle : Bouton "Ajouter un paiement" présent
+- [ ] Pour dépenses : Pas de section historique paiements
+
+### Emails
+- [ ] Email création dépense : Template actuel inchangé
+- [ ] Email création facture fournisseur avec paiement 100% : OK
+- [ ] Email création facture fournisseur avec paiement partiel : OK
+- [ ] Email ajout paiement : OK
+- [ ] Email quand facture devient soldée : Mention spéciale
+- [ ] Infos correctes (montants, dates, types)
+
+### Tests scénarios complets
+
+**Scénario 1 : Dépense (comportement actuel préservé)**
+- [ ] Créer dépense comme avant
+- [ ] Vérifier BDD : invoice_type = "expense"
+- [ ] Vérifier BDD : payment_status null ou "unpaid"
+- [ ] Vérifier BDD : Pas de paiement dans table payments (ou 1 paiement à 100% selon migration)
+- [ ] Vérifier page : Affichage type de règlement (pas de badge statut)
+- [ ] Vérifier : Pas de bouton "Ajouter paiement"
+
+**Scénario 2 : Facture fournisseur payée à 100% à la création**
+- [ ] Créer facture fournisseur avec "Paiement 100%" = Oui
+- [ ] Vérifier BDD : invoice_type = "supplier_invoice"
+- [ ] Vérifier BDD : payment_status = "paid"
+- [ ] Vérifier BDD : 1 paiement créé avec montant = amountDisplayTTC
+- [ ] Vérifier BDD : date paiement = date facture
+- [ ] Vérifier page : Badge "Soldée" (vert)
+- [ ] Vérifier : Pas de bouton "Ajouter paiement"
+
+**Scénario 3 : Facture fournisseur avec 1er paiement partiel**
+- [ ] Créer facture fournisseur 100k avec 1er paiement 30k
+- [ ] Vérifier BDD : invoice_type = "supplier_invoice"
+- [ ] Vérifier BDD : payment_status = "partial"
+- [ ] Vérifier BDD : 1 paiement de 30k
+- [ ] Vérifier page : Badge "Partiel: 30 000 / 100 000 F"
+- [ ] Vérifier : Bouton "Ajouter paiement" visible
+
+**Scénario 4 : Ajout 2ème paiement**
+- [ ] Sur facture fournisseur 100k (30k payés), ouvrir modal
+- [ ] Vérifier affichage : Reste = 70k
+- [ ] Vérifier validation : Refus si montant > 70k
+- [ ] Ajouter paiement de 40k → Succès
+- [ ] Vérifier BDD : 2 paiements (30k + 40k)
+- [ ] Vérifier BDD : payment_status = "partial" (reste 30k)
+- [ ] Vérifier page : Badge "Partiel: 70 000 / 100 000 F"
+
+**Scénario 5 : Paiement final (solde)**
+- [ ] Sur facture fournisseur 100k (70k payés), ajouter 30k
+- [ ] Vérifier BDD : 3 paiements total
+- [ ] Vérifier BDD : payment_status = "paid" (100k atteints)
+- [ ] Vérifier page : Badge "Soldée" (vert)
+- [ ] Vérifier : Bouton "Ajouter paiement" disparu
+- [ ] Vérifier email : Mention "Facture soldée"
+
+**Scénario 6 : Tentative ajout sur facture soldée**
+- [ ] Tenter POST /api/payments sur facture avec payment_status="paid"
+- [ ] Vérifier : Erreur backend "Cette facture est déjà soldée"
+- [ ] Vérifier frontend : Message d'erreur clair
+
+**Scénario 7 : Tentative ajout sur dépense**
+- [ ] Tenter POST /api/payments sur facture avec invoice_type="expense"
+- [ ] Vérifier : Erreur backend "Seules les factures fournisseur..."
+- [ ] Vérifier : Aucun bouton "Ajouter paiement" visible pour dépenses
+
+**Scénario 8 : Utilisateur non créateur**
+- [ ] User A crée facture fournisseur
+- [ ] User B connecté → Page "Mes factures"
+- [ ] Vérifier : Bouton "Ajouter paiement" absent sur facture de User A
+- [ ] Tenter POST /api/payments avec userTokenId de B
+- [ ] Vérifier : Erreur 403 "Seul le créateur de la facture..."
+
+**Scénario 9 : Export CSV mix dépenses/factures**
+- [ ] Créer 3 factures :
+  - Dépense 50k
+  - Facture fournisseur 100k avec 1 paiement (soldée)
+  - Facture fournisseur 200k avec 2 paiements (partielle)
+- [ ] Exporter CSV
+- [ ] Vérifier colonne "Type de facture"
+- [ ] Vérifier colonnes paiements pour chaque facture
+- [ ] Vérifier dépense : colonnes paiements vides
+- [ ] Vérifier lisibilité dans Excel/LibreOffice
+
+**Scénario 10 : Validation dates**
+- [ ] Tenter ajouter paiement avec date future → Erreur
+- [ ] Tenter ajouter paiement avec date avant création facture → Erreur
+- [ ] Ajouter paiement avec date = aujourd'hui → OK
+- [ ] Ajouter paiement avec date = date création facture → OK
+
+**Scénario 11 : BRS (Bonus Ristourne Sur facture)**
+- [ ] Créer facture fournisseur avec BRS 5%
+- [ ] amountDisplayTTC = 90k, amountRealTTC = 94.7k
+- [ ] Ajouter paiement de 90k
+- [ ] Vérifier : payment_status = "paid" (soldé à 90k, pas 94.7k)
+- [ ] Vérifier modal : "Reste à payer : 0 F"
+- [ ] Vérifier affichage : Mention montant comptable (94.7k)
+
+**Scénario 12 : Modification facture avec paiements**
+- [ ] Créer facture fournisseur avec 1 paiement de 30k
+- [ ] Tenter modifier montant TTC via PUT /api/invoices/:id
+- [ ] Vérifier : Erreur 400 "Impossible de modifier le montant..."
+- [ ] Vérifier frontend : Message d'erreur si tentative de modification
+
+**Scénario 13 : Migration données existantes**
+- [ ] Avant déploiement : Créer 5 factures de test
+- [ ] Après déploiement : Vérifier toutes ont invoice_type défini
+- [ ] Vérifier : Factures >= 500k ont invoice_type = "supplier_invoice"
+- [ ] Vérifier : Autres ont invoice_type = "expense"
+- [ ] Vérifier : Toutes ont un paiement créé automatiquement
+- [ ] Vérifier : Factures fournisseur ont payment_status = "paid"
+
+### Tests mobile
+- [ ] iOS : Créer facture fournisseur avec paiement partiel
+- [ ] iOS : Ajouter un paiement via modal
+- [ ] iOS : Input date ouvre sélecteur natif
+- [ ] iOS : Clavier numérique pour montants
+- [ ] Android : Même tests
+- [ ] Responsive : Modal "Ajouter paiement" lisible et utilisable
+
+### Performance
+- [ ] GET /api/invoices avec 50+ factures : < 1s
+- [ ] Pas de N+1 queries (vérifier logs SQL avec EXPLAIN)
+- [ ] Export CSV avec 100+ factures : < 3s
+- [ ] Index sur payments.invoice_id utilisé (vérifier EXPLAIN)
+
+---
+
+**🎯 BRIEF COMPLET ET PRÊT À COPIER-COLLER !**
+
+**Temps estimé : 5-7 heures**
+- Backend (BDD + Storage + Routes + Emails) : 3h
+- Frontend (InvoiceForm + Modal + TrackingPage) : 2-3h
+- Migration données : 30min
+- Tests/Debug : 1-1.5h
+
+**Des questions avant de lancer le build ?** 🚀

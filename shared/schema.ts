@@ -68,6 +68,7 @@ export const invoices = pgTable("invoices", {
   categoryId: integer("category_id").references(() => categories.id), // Reference to categories table
   hasBrs: boolean("has_brs").default(false), // Has BRS (Bon de Réception de Stock)
   amountRealTTC: decimal("amount_real_ttc", { precision: 12, scale: 2 }), // Real amount for accounting
+  paymentStatus: varchar("payment_status", { length: 20 }).default("unpaid"), // unpaid | partial | paid
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -84,6 +85,17 @@ export const paymentMethodsMapping = pgTable("payment_methods_mapping", {
   zohoName: varchar("zoho_name", { length: 150 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Payments for supplier invoices (multiple payments tracking)
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: varchar("invoice_id").references(() => invoices.id, { onDelete: "cascade" }).notNull(),
+  amountPaid: decimal("amount_paid", { precision: 12, scale: 2 }).notNull(),
+  paymentDate: varchar("payment_date", { length: 10 }).notNull(), // YYYY-MM-DD format
+  paymentType: varchar("payment_type", { length: 100 }).notNull(),
+  createdBy: varchar("created_by").references(() => userTokens.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Insert schemas
@@ -125,6 +137,7 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   categoryId: z.number().optional().nullable(),
   hasBrs: z.boolean().optional(),
   amountRealTTC: z.string().or(z.number()).optional().nullable(),
+  paymentStatus: z.enum(["unpaid", "partial", "paid"]).optional().nullable(),
 });
 
 export const insertAdminConfigSchema = createInsertSchema(adminConfig).omit({
@@ -135,6 +148,13 @@ export const insertPaymentMethodsMappingSchema = createInsertSchema(paymentMetho
   id: true,
   createdAt: true,
   updatedAt: true,
+});
+
+export const insertPaymentSchema = createInsertSchema(payments).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  amountPaid: z.string().or(z.number()),
 });
 
 // Types
@@ -159,6 +179,9 @@ export type InsertAdminConfig = z.infer<typeof insertAdminConfigSchema>;
 export type PaymentMethodsMapping = typeof paymentMethodsMapping.$inferSelect;
 export type InsertPaymentMethodsMapping = z.infer<typeof insertPaymentMethodsMappingSchema>;
 
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+
 // Invoice with joined data for frontend
 export type InvoiceWithDetails = Invoice & {
   supplierName: string;
@@ -173,3 +196,13 @@ export type InvoiceWithDetails = Invoice & {
   displayCategory?: string;
   displayAmount?: string;
 };
+
+// Invoice with payments for supplier invoices
+export type InvoiceWithPayments = InvoiceWithDetails & {
+  totalPaid?: number;
+  remainingAmount?: number;
+  payments?: Payment[];
+};
+
+// Payment status type
+export type PaymentStatus = "unpaid" | "partial" | "paid";

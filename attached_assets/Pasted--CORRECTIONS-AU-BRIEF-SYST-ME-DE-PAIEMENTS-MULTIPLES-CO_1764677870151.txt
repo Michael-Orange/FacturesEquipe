@@ -1,0 +1,235 @@
+# CORRECTIONS AU BRIEF "SYSTÈME DE PAIEMENTS MULTIPLES"
+
+## ⚠️ CONTEXTE
+Le champ `invoice_type` EXISTE DÉJÀ en BDD avec valeurs 'expense' et 'supplier_invoice'.
+Le brief initial supposait qu'il fallait le créer → FAUX.
+
+## 📝 MODIFICATIONS À APPORTER
+
+### 1. SECTION "Architecture Base de Données" → Sous-section 1
+
+**RETIRER COMPLÈTEMENT :**
+1. Modifications table invoices
+Nouvelle colonne invoice_type :
+ALTER TABLE invoices ADD COLUMN invoice_type VARCHAR DEFAULT 'expense';
+invoice_type: varchar
+Valeurs possibles : "expense" | "supplier_invoice"
+Défaut : "expense"
+Logique :
+"expense" : Dépense simple, pas de gestion paiements multiples
+"supplier_invoice" : Facture fournisseur, gestion paiements multiples activée
+
+**REMPLACER PAR :**
+1. Modifications table invoices
+Note importante : Le champ invoice_type EXISTE DÉJÀ en BDD (valeurs: 'expense' | 'supplier_invoice').
+Nouvelle colonne payment_status UNIQUEMENT :
+ALTER TABLE invoices ADD COLUMN payment_status VARCHAR DEFAULT 'unpaid';
+payment_status: varchar
+Valeurs possibles : "unpaid" | "partial" | "paid"
+Défaut : "unpaid"
+Logique :
+"unpaid" : Aucun paiement enregistré
+"partial" : Au moins 1 paiement mais total < montant à payer
+"paid" : Total des paiements = montant à payer (facture soldée)
+IMPORTANT : Ce champ est utilisé UNIQUEMENT pour invoice_type = "supplier_invoice"
+
+---
+
+### 2. SECTION "Architecture Base de Données" → Sous-section 3
+
+**RETIRER COMPLÈTEMENT :**
+3. Modification table invoices pour invoice_type
+Ajouter dans schema.ts :
+export const invoices = pgTable("invoices", {
+  // ... champs existants
+  invoiceType: varchar("invoice_type").default("expense"),
+  paymentStatus: varchar("payment_status").default("unpaid"),
+  // ... autres champs
+});
+
+**REMPLACER PAR :**
+3. Modification schéma Drizzle pour payment_status
+Mettre à jour dans schema.ts :
+export const invoices = pgTable("invoices", {
+  // ... champs existants
+  invoiceType: varchar("invoice_type"), // EXISTE DÉJÀ - Ne pas créer
+  paymentStatus: varchar("payment_status").default("unpaid"), // NOUVEAU
+  // ... autres champs
+});
+Note : Le champ invoiceType existe déjà en BDD. Il faut juste l'ajouter au schéma Drizzle pour synchronisation.
+
+---
+
+### 3. SECTION "Spécifications Fonctionnelles" → Sous-section 1
+
+**DANS LA PARTIE "Nouveau champ Type de facture (EXISTANT dans l'UI)" :**
+
+**RETIRER :**
+Modification nécessaire :
+Sauvegarder ce choix dans la BDD via le nouveau champ invoice_type
+Si "Dépense" sélectionné → invoice_type = "expense"
+Si "Facture Fournisseur" sélectionné → invoice_type = "supplier_invoice"
+
+**REMPLACER PAR :**
+État actuel :
+Ce choix est DÉJÀ sauvegardé en BDD dans le champ invoice_type
+Valeurs actuelles : 'expense' | 'supplier_invoice'
+PAS de modification nécessaire sur ce champ
+
+---
+
+### 4. SECTION "Migration des données existantes" → RÉÉCRIRE COMPLÈTEMENT
+
+**RETIRER TOUTE LA SECTION ACTUELLE**
+
+**REMPLACER PAR :**
+9. Migration des données existantes
+Stratégie de migration
+Contexte :
+Le champ invoice_type EXISTE DÉJÀ avec valeurs correctes ('expense' | 'supplier_invoice')
+Les factures sont déjà classifiées correctement
+Il faut uniquement créer la colonne payment_status et la table payments
+Étape 1 : Ajouter colonne payment_status
+ALTER TABLE invoices ADD COLUMN payment_status VARCHAR DEFAULT 'unpaid';
+Étape 2 : Créer table payments
+CREATE TABLE payments (
+  id SERIAL PRIMARY KEY,
+  invoice_id VARCHAR NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  amount_paid VARCHAR NOT NULL,
+  payment_date VARCHAR NOT NULL,
+  payment_type VARCHAR NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  created_by VARCHAR REFERENCES user_tokens(id)
+);
+
+CREATE INDEX idx_payments_invoice_id ON payments(invoice_id);
+Étape 3 : Créer paiements automatiquement pour TOUTES les factures existantes
+-- Créer un paiement à 100% pour chaque facture
+INSERT INTO payments (invoice_id, amount_paid, payment_date, payment_type, created_by)
+SELECT 
+  id,
+  COALESCE(amount_display_ttc, amount_ttc) as amount_paid,  -- Utiliser montant affiché si BRS
+  COALESCE(invoice_date, created_at::date) as payment_date,
+  payment_type,
+  user_name  -- Note: Adapter si besoin de récupérer user_tokens.id
+FROM invoices
+WHERE invoice_date IS NOT NULL  -- Sécurité : ne traiter que factures valides
+  AND payment_type IS NOT NULL;
+Étape 4 : Mettre payment_status = 'paid' pour toutes les factures
+-- Toutes les factures existantes sont considérées comme soldées
+UPDATE invoices 
+SET payment_status = 'paid'
+WHERE id IN (SELECT invoice_id FROM payments);
+Résultat migration :
+✅ Toutes les factures existantes (dépenses ET factures fournisseur) ont payment_status = 'paid'
+✅ Chaque facture a un paiement de 100% dans la table payments
+✅ Date du paiement = date de la facture
+✅ Type du paiement = type de règlement de la facture
+✅ Le système de paiements multiples est prêt pour les nouvelles factures fournisseur
+IMPORTANT :
+Tester la migration sur une copie de la BDD d'abord
+Backup de la BDD avant exécution
+Vérifier que toutes les factures ont bien un paiement créé après migration
+
+---
+
+### 5. SECTION "Ordre d'implémentation" → Étape 1
+
+**MODIFIER :**
+
+**AU LIEU DE :**
+Migrations BDD
+Ajouter colonne invoice_type à invoices
+Ajouter colonne payment_status à invoices
+Créer table payments
+Créer index sur payments.invoice_id
+Push migration Drizzle
+
+**ÉCRIRE :**
+Migrations BDD
+Ajouter colonne payment_status à invoices
+Créer table payments
+Créer index sur payments.invoice_id
+Push migration Drizzle
+
+**ET MODIFIER :**
+
+**AU LIEU DE :**
+Schémas Drizzle (shared/schema.ts)
+Modifier schéma invoices (2 nouvelles colonnes)
+Créer schéma payments
+Créer types insertPaymentSchema, etc.
+
+**ÉCRIRE :**
+Schémas Drizzle (shared/schema.ts)
+Modifier schéma invoices : ajouter invoiceType (pour synchro) + paymentStatus (nouveau)
+Créer schéma payments
+Créer types insertPaymentSchema, etc.
+
+---
+
+### 6. CHECKLIST POST-BUILD → Section "Base de données"
+
+**MODIFIER :**
+
+**AU LIEU DE :**
+ Colonnes invoice_type et payment_status ajoutées à invoices
+ Toutes les factures existantes ont un invoice_type défini
+
+**ÉCRIRE :**
+ Colonne payment_status ajoutée à invoices
+ Champ invoiceType ajouté au schéma Drizzle pour synchro avec BDD existante
+
+**ET RETIRER :**
+ Vérifier : Factures >= 500k ont invoice_type = "supplier_invoice"
+ Vérifier : Autres ont invoice_type = "expense"
+
+**REMPLACER PAR :**
+ Vérifier : invoice_type déjà présent en BDD avec valeurs correctes
+
+---
+
+### 7. CHECKLIST POST-BUILD → Scénario 13
+
+**MODIFIER :**
+
+**AU LIEU DE :**
+Scénario 13 : Migration données existantes
+ Avant déploiement : Créer 5 factures de test
+ Après déploiement : Vérifier toutes ont invoice_type défini
+ Vérifier : Factures >= 500k ont invoice_type = "supplier_invoice"
+ Vérifier : Autres ont invoice_type = "expense"
+ Vérifier : Toutes ont un paiement créé automatiquement
+ Vérifier : Factures fournisseur ont payment_status = "paid"
+
+**ÉCRIRE :**
+Scénario 13 : Migration données existantes
+ Avant migration : Backup BDD
+ Après migration : Vérifier colonne payment_status créée
+ Vérifier : Toutes les factures existantes ont payment_status = "paid"
+ Vérifier : Toutes ont un paiement créé dans table payments
+ Vérifier : Montant paiement = amount_display_ttc (ou amount_ttc)
+ Vérifier : Date paiement = invoice_date
+ Vérifier : Nombre paiements créés = nombre factures
+
+---
+
+## 🎯 RÉSUMÉ DES CHANGEMENTS
+
+| Élément | Avant | Après |
+|---------|-------|-------|
+| Colonne `invoice_type` | À créer | **EXISTE DÉJÀ** |
+| Colonne `payment_status` | À créer | À créer ✅ |
+| Table `payments` | À créer | À créer ✅ |
+| Migration invoice_type | Classifier les factures | **PAS NÉCESSAIRE** |
+| Migration payment_status | Créer + peupler | Créer + peupler ✅ |
+| Schéma Drizzle | Ajouter 2 colonnes | Ajouter 1 colonne + synchro 1 existante |
+
+---
+
+## 📌 NOTE POST-IMPLÉMENTATION
+
+Une fois ce brief terminé, il faudra créer un brief pour :
+**"Synchroniser schema.ts avec la BDD de production"**
+- Ajouter tous les champs manquants dans le schéma Drizzle
+- Notamment `invoice_type` qui existe en BDD mais pas dans le code GitHub

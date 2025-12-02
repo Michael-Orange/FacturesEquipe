@@ -1,0 +1,828 @@
+📋 BRIEF COMPLET POUR REPLIT
+# OBJECTIF
+Implémenter un système complet de gestion des paiements multiples pour les factures
+
+# CONTEXTE
+Actuellement, l'application ne gère pas les paiements partiels. Les factures peuvent être payées en plusieurs fois (acomptes successifs).
+Besoin de tracker chaque paiement avec son montant, sa date et son type de règlement.
+
+EXEMPLE D'USAGE :
+- Facture de 100 000 F
+- Paiement 1 : 30 000 F le 01/12 par Virement
+- Paiement 2 : 40 000 F le 15/12 par Espèces
+- Paiement 3 : 30 000 F le 30/12 par Mobile Money
+- Statut : Soldée ✅
+
+# ARCHITECTURE BASE DE DONNÉES
+
+## 1. Modifications table `invoices`
+
+**Nouvelle colonne :**
+```sql
+ALTER TABLE invoices ADD COLUMN payment_status VARCHAR DEFAULT 'unpaid';
+payment_status: varchar
+Valeurs possibles : "unpaid" | "partial" | "paid"
+Défaut : "unpaid"
+Logique :
+"unpaid" : Aucun paiement enregistré
+"partial" : Au moins 1 paiement mais total < montant TTC
+"paid" : Total des paiements = montant TTC (facture soldée)
+2. Nouvelle table payments
+Création :
+CREATE TABLE payments (
+  id SERIAL PRIMARY KEY,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  amount_paid VARCHAR NOT NULL,
+  payment_date VARCHAR NOT NULL,
+  payment_type VARCHAR NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  created_by INTEGER REFERENCES users(id)
+);
+Schéma Drizzle (shared/schema.ts) :
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  amountPaid: varchar("amount_paid").notNull(),
+  paymentDate: varchar("payment_date").notNull(),
+  paymentType: varchar("payment_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  createdBy: integer("created_by").references(() => users.id)
+});
+
+export const insertPaymentSchema = createInsertSchema(payments).pick({
+  invoiceId: true,
+  amountPaid: true,
+  paymentDate: true,
+  paymentType: true,
+  createdBy: true
+});
+Contraintes métier :
+amountPaid : Doit être > 0
+paymentDate : Format YYYY-MM-DD
+paymentType : Valeurs existantes (Virement, Espèces, Carte bancaire, Mobile Money, etc.)
+createdBy : User ID de la personne qui enregistre le paiement
+SPÉCIFICATIONS FONCTIONNELLES
+1. Formulaire de création de facture (MODIFICATIONS)
+Nouveau champ après les montants
+Question : "Paiement réalisé à 100%"
+Type : Radio buttons (style identique à "Achat pour le stock")
+Options : Oui (défaut) / Non
+Position : Entre montants (HT/TTC) et "Type de règlement"
+Comportement conditionnel
+Si "Oui" sélectionné :
+Le champ "Type de règlement" reste MAIS change de label/logique :
+Label devient : "Type de règlement du paiement complet"
+Un paiement de 100% du montant TTC sera automatiquement créé à la soumission
+Date du paiement : Date du jour par défaut (modifiable)
+Type : Celui sélectionné dans "Type de règlement"
+Si "Non" sélectionné :
+Afficher section "Premier paiement" avec :
+Montant payé (input number, requis)
+Date du paiement (input date, défaut = aujourd'hui, modifiable)
+Type de règlement (select, options existantes)
+Validation :
+Montant payé > 0
+Montant payé <= Montant TTC (peut être = si finalement c'est 100%)
+Date de paiement requise
+Type de règlement requis
+Logique de soumission
+Actions backend :
+Créer la facture dans invoices avec payment_status calculé :
+Si paiement = 100% du TTC → payment_status = "paid"
+Si paiement < 100% → payment_status = "partial"
+Si aucun paiement → payment_status = "unpaid" (cas rare mais possible)
+Créer le(s) paiement(s) dans payments :
+Si "Oui" : 1 paiement avec amountPaid = amountTTC
+Si "Non" : 1 paiement avec le montant saisi
+Transaction SQL : Les 2 opérations doivent réussir ou échouer ensemble
+2. Page "Mes factures" (MODIFICATIONS MAJEURES)
+Colonne statut paiement
+Affichage visuel par badge :
+Facture soldée (payment_status = "paid") :
+✅ Soldée
+Badge vert (bg-teal-600)
+Facture partiellement payée (payment_status = "partial") :
+⚠️ Partiel: 30 000 / 100 000 F
+Badge orange (bg-orange-500)
+Afficher : Total payé / Montant TTC
+Facture non payée (payment_status = "unpaid") :
+❌ Non payé
+Badge rouge (bg-red-500)
+Calcul du total payé
+Logique :
+Backend doit calculer pour chaque facture :
+SELECT SUM(amount_paid) as total_paid 
+FROM payments 
+WHERE invoice_id = X
+Retourner dans l'API : totalPaid et remainingAmount
+Frontend affiche : totalPaid / amountTTC
+Bouton "Ajouter un paiement"
+Affichage conditionnel :
+Visible UNIQUEMENT si :
+payment_status = "partial" OU "unpaid"
+ET createdBy = user connecté (seule la personne ayant créé la facture)
+Masqué si payment_status = "paid"
+Design :
+Bouton primaire/secondaire : "💳 Ajouter un paiement"
+Position : Dans la ligne du tableau ou en action sur la facture
+Action au clic :
+Ouvrir une modal OU rediriger vers page dédiée
+Recommandation : Modal pour rester sur la page
+3. Modal "Ajouter un paiement"
+Contenu de la modal
+Titre :
+Ajouter un paiement
+Facture #XXX - Fournisseur XXX
+Informations affichées :
+Montant TTC de la facture : 100 000 F
+Total déjà payé : 30 000 F
+Reste à payer : 70 000 F (en gras, couleur accent)
+Formulaire :
+Montant de ce paiement (input number)
+Requis
+Placeholder : "Ex: 40000"
+Validation :
+Doit être > 0
+Doit être <= Reste à payer
+Message d'erreur : "Le montant ne peut pas dépasser le reste à payer (XXX F)"
+Date du paiement (input date)
+Requis
+Défaut : Date du jour
+Min : Date de création de la facture (ne peut pas antidater avant la facture)
+Max : Date du jour (ne peut pas postdater dans le futur)
+Type de règlement (select)
+Options : Virement, Espèces, Carte bancaire, Mobile Money, Chèque
+Requis
+Défaut : Aucun (forcer le choix)
+Boutons :
+"Annuler" (ferme la modal)
+"Enregistrer le paiement" (primaire, soumet le formulaire)
+Logique de soumission
+Actions backend :
+Valider les données reçues
+Créer le nouveau paiement dans payments
+Recalculer le total payé pour cette facture
+Mettre à jour payment_status dans invoices :
+Si nouveau total = montant TTC → payment_status = "paid"
+Sinon → payment_status = "partial" (reste inchangé)
+Retourner la facture mise à jour avec les paiements
+Actions frontend :
+Fermer la modal
+Rafraîchir la liste des factures (ou mettre à jour l'état React)
+Afficher toast de succès : "Paiement enregistré ✅"
+4. Détail d'une facture (NOUVELLE SECTION)
+Ajouter section "Historique des paiements"
+Quand on clique sur une facture dans "Mes factures", afficher :
+Section 1 - Informations de base (existant)
+Fournisseur, montant TTC, date soumission, etc.
+Section 2 - Historique des paiements (NOUVEAU)
+Si facture non payée (payment_status = "unpaid") :
+❌ Aucun paiement enregistré
+Reste à payer : 100 000 F
+Si facture partiellement payée (payment_status = "partial") :
+Historique des paiements :
+
+┌─────────────────────────────────────────┐
+│ Paiement 1 - 01/12/2024                │
+│ 30 000 F - Virement                    │
+├─────────────────────────────────────────┤
+│ Paiement 2 - 15/12/2024                │
+│ 40 000 F - Espèces                     │
+└─────────────────────────────────────────┘
+
+Total payé : 70 000 F
+Reste à payer : 30 000 F
+
+[Bouton: Ajouter un paiement]
+Si facture soldée (payment_status = "paid") :
+✅ Facture soldée
+
+Historique des paiements :
+[Liste identique ci-dessus]
+
+Total payé : 100 000 F ✅
+Design :
+Tableau ou liste stylisée (cards)
+Chaque paiement affiche : Date, Montant, Type
+Ordre : Chronologique (du plus ancien au plus récent)
+5. Filtres dans la page "Mes factures"
+Nouveau filtre : Statut de paiement
+Emplacement :
+À côté des filtres existants (recherche, date, etc.)
+Dropdown ou boutons radio
+Options :
+Toutes (défaut)
+Soldées uniquement
+Partiellement payées uniquement
+Non payées uniquement
+Logique backend :
+Endpoint GET /api/invoices?paymentStatus=paid|partial|unpaid
+Filtrer sur invoices.payment_status
+6. Emails de confirmation
+Email après création de facture
+Si paiement complet (100%) :
+Bonjour [Prénom],
+
+Votre facture a bien été enregistrée et validée.
+
+Détails :
+- Fournisseur : XXX
+- Montant TTC : 100 000 F
+- Statut : Payée intégralement ✅
+- Date du paiement : 01/12/2024
+- Type de règlement : Virement
+
+Merci !
+Si paiement partiel :
+Bonjour [Prénom],
+
+Votre facture a bien été enregistrée avec un paiement partiel.
+
+Détails :
+- Fournisseur : XXX
+- Montant TTC : 100 000 F
+- Premier paiement : 30 000 F ⚠️
+- Date du paiement : 01/12/2024
+- Type de règlement : Virement
+- Reste à payer : 70 000 F
+
+Vous pourrez ajouter les paiements suivants depuis l'application.
+
+Merci !
+Email après ajout d'un paiement
+Nouveau template :
+Bonjour [Prénom],
+
+Un nouveau paiement a été enregistré sur votre facture.
+
+Facture :
+- Fournisseur : XXX
+- Montant TTC : 100 000 F
+
+Nouveau paiement :
+- Montant : 40 000 F
+- Date : 15/12/2024
+- Type : Espèces
+
+Situation :
+- Total payé : 70 000 F
+- Reste à payer : 30 000 F
+
+[Si soldée]
+✅ Cette facture est maintenant soldée !
+
+Merci !
+7. Exports CSV
+Challenge technique : Colonnes multiples
+Structure proposée :
+Afficher jusqu'à 5 paiements maximum sur une seule ligne (extensible si besoin).
+Colonnes à ajouter :
+| Statut paiement | Total payé | Reste à payer | 
+| Paiement 1 Montant | Paiement 1 Date | Paiement 1 Type |
+| Paiement 2 Montant | Paiement 2 Date | Paiement 2 Type |
+| Paiement 3 Montant | Paiement 3 Date | Paiement 3 Type |
+| Paiement 4 Montant | Paiement 4 Date | Paiement 4 Type |
+| Paiement 5 Montant | Paiement 5 Date | Paiement 5 Type |
+Logique :
+Backend récupère tous les paiements pour chaque facture
+Génère les colonnes dynamiquement
+Si moins de 5 paiements : colonnes vides
+Si plus de 5 paiements : afficher les 5 premiers (peu probable mais géré)
+Exemple ligne CSV :
+"Partiel","70000","30000","30000","01/12/2024","Virement","40000","15/12/2024","Espèces","","","","","","","","",""
+Exports concernés :
+Export utilisateur (mes_factures_xxx.csv)
+Export admin (factures_YYYY-MM-DD.csv)
+Export Axonaut : NE PAS MODIFIER
+Garde le montant TTC total
+Ignore les paiements partiels (comme confirmé)
+MODIFICATIONS BACKEND
+Routes (server/routes.ts)
+Route POST /api/invoices (création)
+Modifications :
+Recevoir les données du paiement initial (si fourni)
+Calculer payment_status :
+Si montant payé = montant TTC → "paid"
+Si montant payé < montant TTC → "partial"
+Si pas de paiement → "unpaid"
+Créer facture ET paiement dans une transaction
+Retourner la facture avec son statut
+Données reçues :
+{
+  "supplierId": 123,
+  "amountTTC": "100000",
+  "amountHT": "...",
+  "paymentFull": false,
+  "firstPayment": {
+    "amountPaid": "30000",
+    "paymentDate": "2024-12-01",
+    "paymentType": "Virement"
+  },
+  ...
+}
+Nouvelle route POST /api/payments (ajout paiement)
+Endpoint :
+POST /api/payments
+Données reçues :
+Invoice Id
+456
+Amount Paid
+40000
+Payment Date
+2024-12-15
+Payment Type
+Espèces
+Validations :
+Vérifier que la facture existe
+Vérifier que l'utilisateur connecté est le créateur de la facture
+Vérifier que payment_status != "paid" (facture non soldée)
+Calculer le reste à payer actuel
+Vérifier que amountPaid <= reste à payer
+Vérifier que paymentDate >= date création facture et <= date du jour
+Actions :
+Créer le paiement dans payments
+Recalculer total payé
+Mettre à jour payment_status si nécessaire
+Envoyer email de confirmation
+Retourner la facture mise à jour avec tous ses paiements
+Route GET /api/invoices (listing)
+Modifications :
+JOIN avec table payments pour calculer totalPaid par facture
+Ajouter filtrage par paymentStatus (query param)
+Retourner pour chaque facture :
+paymentStatus
+totalPaid
+remainingAmount
+payments : liste des paiements (optionnel, selon besoin frontend)
+Exemple réponse :
+Id
+123
+Amount T T C
+100000
+Payment Status
+partial
+Total Paid
+70000
+Remaining Amount
+30000
+Payments
+Item 1
+Id
+1
+Amount Paid
+30000
+Payment Date
+2024-12-01
+Payment Type
+Virement
+Item 2
+Id
+2
+Amount Paid
+40000
+Payment Date
+2024-12-15
+Payment Type
+Espèces
+Route GET /api/invoices/:id (détail)
+Modifications :
+Récupérer la facture
+Récupérer TOUS les paiements associés (ORDER BY payment_date ASC)
+Calculer totalPaid et remainingAmount
+Retourner tout ça
+Storage (server/storage.ts)
+Méthode createInvoiceWithPayment (NOUVELLE)
+Signature :
+async createInvoiceWithPayment(
+  invoiceData: InsertInvoice,
+  paymentData?: InsertPayment
+): Promise<Invoice>
+Logique :
+Démarrer transaction
+Créer facture avec payment_status calculé
+Si paymentData fourni : créer paiement
+Commit transaction
+Retourner facture créée
+Méthode addPayment (NOUVELLE)
+Signature :
+async addPayment(
+  paymentData: InsertPayment
+): Promise<{ invoice: Invoice, payment: Payment }>
+Logique :
+Créer le paiement
+Calculer nouveau total payé
+Mettre à jour payment_status de la facture
+Retourner facture + paiement créé
+Méthode getInvoicesByUser (MODIFICATION)
+Ajouts :
+JOIN payments pour calculer totalPaid
+Supporter filtrage par paymentStatus
+Inclure payments[] si nécessaire
+Méthode getInvoiceWithPayments (NOUVELLE)
+Signature :
+async getInvoiceWithPayments(invoiceId: number): Promise<InvoiceWithPayments>
+Logique :
+Récupérer facture
+Récupérer tous les paiements (ORDER BY payment_date ASC)
+Calculer totalPaid et remainingAmount
+Retourner objet complet
+Emails (server/email.ts ou service mail)
+Template "Nouvelle facture avec paiement"
+Adapter le template existant pour inclure :
+Statut paiement (complet/partiel)
+Montant du paiement
+Reste à payer (si partiel)
+Nouveau template "Nouveau paiement enregistré"
+Créer template dédié (voir spec section 6)
+MODIFICATIONS FRONTEND
+Composant InvoiceForm (client/src/components/InvoiceForm.tsx)
+État du formulaire - Nouveaux champs :
+const [paymentFull, setPaymentFull] = useState(true);
+const [firstPaymentAmount, setFirstPaymentAmount] = useState("");
+const [firstPaymentDate, setFirstPaymentDate] = useState(todayDate);
+const [firstPaymentType, setFirstPaymentType] = useState("");
+Structure UI :
+Champs montants (existants)
+Radio "Paiement réalisé à 100%" : Oui / Non
+Si "Non" : Section "Premier paiement" avec 3 champs
+Reste du formulaire (projet, fichier, etc.)
+Validation :
+Si paymentFull = false :
+firstPaymentAmount requis, > 0, <= amountTTC
+firstPaymentDate requis
+firstPaymentType requis
+Soumission :
+Envoyer paymentFull + données du firstPayment si applicable
+Nouveau composant AddPaymentModal
+Emplacement :
+client/src/components/AddPaymentModal.tsx
+Props :
+interface AddPaymentModalProps {
+  invoice: Invoice;
+  onClose: () => void;
+  onSuccess: (updatedInvoice: Invoice) => void;
+}
+État interne :
+amountPaid
+paymentDate (default: today)
+paymentType
+Validation :
+amountPaid > 0 et <= remainingAmount
+paymentDate entre date création facture et aujourd'hui
+paymentType requis
+Soumission :
+POST /api/payments avec les données
+Appeler onSuccess avec facture mise à jour
+Fermer modal
+Page TrackingPage (client/src/pages/TrackingPage.tsx)
+Modifications :
+Colonne statut paiement :
+Remplacer colonne "Type de règlement" ou ajouter nouvelle colonne
+Afficher badges colorés (Soldée / Partiel / Non payé)
+Bouton "Ajouter un paiement" :
+Afficher uniquement si :
+invoice.paymentStatus !== "paid"
+invoice.createdBy === currentUser.id
+Au clic : ouvrir AddPaymentModal
+Nouveau filtre :
+Dropdown "Statut de paiement"
+Options : Toutes / Soldées / Partielles / Non payées
+Envoyer query param à l'API
+Affichage détail facture :
+Section "Historique des paiements"
+Liste des paiements avec date, montant, type
+Total payé / Reste à payer
+Bouton "Ajouter un paiement" si applicable
+Exports CSV (modifications dans routes.ts côté backend principalement)
+Frontend :
+Bouton "Exporter mes factures" : Inchangé
+Le CSV généré inclut automatiquement les colonnes paiements
+Backend (routes.ts) :
+Modifier fonction generateCSV pour :
+Récupérer les paiements de chaque facture
+Ajouter colonnes dynamiques (Paiement 1-5)
+Gérer les factures avec 0, 1, 2, 3+ paiements
+ORDRE D'IMPLÉMENTATION RECOMMANDÉ
+ÉTAPE 1 - Base de données
+Créer migration pour ajouter payment_status à invoices
+Créer table payments avec contraintes
+Créer schémas Drizzle (shared/schema.ts)
+Push DB et vérifier
+ÉTAPE 2 - Backend (Storage + Routes)
+Implémenter storage.ts :
+createInvoiceWithPayment
+addPayment
+getInvoiceWithPayments
+Modifier getInvoicesByUser pour inclure totalPaid
+Implémenter routes.ts :
+Modifier POST /api/invoices pour gérer premier paiement
+Créer POST /api/payments
+Modifier GET /api/invoices pour filtrage et calculs
+Modifier GET /api/invoices/:id pour inclure payments
+Modifier exports CSV :
+Adapter generateCSV pour colonnes paiements
+ÉTAPE 3 - Frontend (Création)
+Modifier InvoiceForm :
+Ajouter radio "Paiement 100%"
+Ajouter section conditionnelle "Premier paiement"
+Validation
+Soumission avec données paiement
+ÉTAPE 4 - Frontend (Affichage)
+Modifier TrackingPage :
+Colonne statut avec badges
+Filtrer par statut paiement
+Afficher totalPaid / remainingAmount
+Créer AddPaymentModal :
+Formulaire + validation
+Intégration API POST /api/payments
+Gestion succès/erreurs
+Ajouter bouton "Ajouter un paiement" dans TrackingPage :
+Conditionnel (statut + user)
+Ouvrir modal au clic
+Ajouter section "Historique des paiements" dans détail facture
+ÉTAPE 5 - Emails
+Adapter template email création facture
+Créer template email ajout paiement
+Tester envois
+ÉTAPE 6 - Tests complets
+Tester tous les scénarios (voir checklist)
+POINTS D'ATTENTION CRITIQUES
+Transactions SQL obligatoires :
+Créer facture + premier paiement = 1 transaction
+Échec d'une opération = rollback total
+Calcul du payment_status :
+Toujours recalculer après ajout de paiement
+Ne jamais faire confiance au frontend
+Arrondir les montants pour éviter bugs (ex: 99.99 vs 100)
+Permissions :
+Seul le créateur de la facture peut ajouter un paiement
+Vérifier côté backend (pas seulement masquer le bouton)
+Validation montants :
+Un paiement ne peut JAMAIS dépasser le reste à payer
+Gérer les cas edge : montant partiel qui finalise exactement (70k + 30k = 100k)
+Dates de paiement :
+Minimum : Date de création de la facture
+Maximum : Date du jour
+Format cohérent (YYYY-MM-DD)
+Exports CSV :
+Tester avec 0, 1, 3, 5 paiements
+Vérifier que les colonnes s'alignent bien
+Excel/LibreOffice doit pouvoir ouvrir proprement
+Emails :
+Envoyer email APRÈS succès complet (pas avant)
+Gérer échec envoi email (logger mais ne pas bloquer)
+Performance :
+JOIN payments pour chaque facture peut être lourd
+Indexer payments.invoice_id
+Limiter le nombre de paiements affichés en frontend si nécessaire
+UX Mobile :
+Modal "Ajouter un paiement" doit être responsive
+Input date natif sur mobile
+Clavier numérique pour montants
+Migration données existantes :
+Toutes les factures existantes → payment_status = "unpaid" ?
+OU créer automatiquement un paiement à 100% pour chacune ?
+RECOMMANDATION : Laisser "unpaid" et laisser les users ajouter manuellement si besoin
+FICHIERS À MODIFIER/CRÉER
+Backend
+shared/schema.ts (schémas invoices + nouvelle table payments)
+db/migrations/ (nouvelle migration SQL)
+server/storage.ts (nouvelles méthodes + modifications)
+server/routes.ts (modifications routes + nouvelle route payments)
+server/email.ts ou service mail (templates)
+Frontend
+client/src/components/InvoiceForm.tsx (modifications majeures)
+client/src/components/AddPaymentModal.tsx (NOUVEAU)
+client/src/pages/TrackingPage.tsx (modifications majeures)
+client/src/lib/types.ts (types Payment, InvoiceWithPayments)
+client/src/hooks/usePayments.ts (NOUVEAU, optionnel mais recommandé)
+Styles (si nécessaire)
+Badges pour statuts paiement
+Modal AddPayment
+Section historique paiements
+SCHÉMA DE VALIDATION - Exemple backend
+Validation ajout paiement (POST /api/payments)
+// Pseudo-code de validation
+function validateAddPayment(invoiceId, amountPaid, paymentDate, userId) {
+  // 1. Facture existe ?
+  const invoice = await db.getInvoice(invoiceId);
+  if (!invoice) throw Error("Facture introuvable");
+  
+  // 2. User autorisé ?
+  if (invoice.createdBy !== userId) throw Error("Non autorisé");
+  
+  // 3. Facture déjà soldée ?
+  if (invoice.paymentStatus === "paid") throw Error("Facture déjà soldée");
+  
+  // 4. Calcul reste à payer
+  const totalPaid = await db.getTotalPaid(invoiceId);
+  const remaining = parseFloat(invoice.amountTTC) - totalPaid;
+  
+  // 5. Montant valide ?
+  const amount = parseFloat(amountPaid);
+  if (amount <= 0) throw Error("Montant invalide");
+  if (amount > remaining) throw Error(`Ne peut pas dépasser ${remaining} F`);
+  
+  // 6. Date valide ?
+  if (paymentDate < invoice.createdAt) throw Error("Date antérieure à la facture");
+  if (paymentDate > today) throw Error("Date dans le futur");
+  
+  // OK, créer le paiement
+}
+SÉCURITÉ
+Authentification : Tous les endpoints /api/payments nécessitent un token valide
+Autorisation : Vérifier que userId = invoice.createdBy avant toute action
+Validation : Ne JAMAIS faire confiance aux données frontend
+SQL Injection : Utiliser Drizzle ORM (protection native)
+XSS : React échappe automatiquement, mais attention aux dangerouslySetInnerHTML
+LOGS & MONITORING
+Événements à logger :
+Création facture avec paiement
+Ajout d'un paiement
+Facture passée à "paid" (soldée)
+Échecs de validation (tentative montant > reste)
+Échecs d'envoi email
+Format log :
+[INFO] Payment added - Invoice #123 - Amount: 40000 - User: 5
+[WARNING] Payment validation failed - Invoice #123 - Amount exceeds remaining
+[ERROR] Email send failed - Invoice #123 - Payment #789
+COMPATIBILITÉ & ROLLBACK
+En cas de problème :
+La table payments est indépendante
+Supprimer la colonne payment_status ramène au comportement d'avant
+Migration réversible
+Version intermédiaire possible :
+Déployer d'abord la BDD + backend
+Tester en staging
+Déployer frontend ensuite
+
+---
+
+## ✅ CHECKLIST POST-BUILD COMPLÈTE
+
+### Base de données
+- [ ] Table `payments` créée avec contraintes
+- [ ] Colonne `payment_status` ajoutée à `invoices`
+- [ ] Index créé sur `payments.invoice_id`
+- [ ] Migration exécutée sans erreur
+
+### Backend - Création facture
+- [ ] POST /api/invoices accepte données premier paiement
+- [ ] Transaction SQL : facture + paiement créés ensemble
+- [ ] payment_status calculé correctement (paid/partial/unpaid)
+- [ ] Email envoyé avec infos paiement
+
+### Backend - Ajout paiement
+- [ ] POST /api/payments fonctionne
+- [ ] Validation : user autorisé (createdBy)
+- [ ] Validation : montant <= reste à payer
+- [ ] Validation : date entre création facture et aujourd'hui
+- [ ] payment_status mis à jour automatiquement
+- [ ] Email "Nouveau paiement" envoyé
+
+### Backend - Listing
+- [ ] GET /api/invoices retourne totalPaid et remainingAmount
+- [ ] Filtre par paymentStatus fonctionne
+- [ ] Performances correctes (pas de N+1 queries)
+
+### Backend - Exports CSV
+- [ ] Colonnes paiements ajoutées (1-5)
+- [ ] Export avec 0 paiement : colonnes vides
+- [ ] Export avec 3 paiements : données correctes
+- [ ] Export avec 5+ paiements : 5 premiers affichés
+- [ ] Export Axonaut inchangé (montant TTC total)
+
+### Frontend - Création facture
+- [ ] Radio "Paiement 100%" affiche correctement (style identique "Achat stock")
+- [ ] Section "Premier paiement" apparaît/disparaît selon sélection
+- [ ] Animation smooth (pas de saut)
+- [ ] Validation : montant partiel <= montant TTC
+- [ ] Date par défaut = aujourd'hui mais modifiable
+- [ ] Soumission avec paiement 100% : fonctionne
+- [ ] Soumission avec paiement partiel : fonctionne
+- [ ] Toast de succès affiché
+
+### Frontend - Page "Mes factures"
+- [ ] Badge "Soldée" (vert) affiché correctement
+- [ ] Badge "Partiel: XX / XX F" (orange) avec calculs corrects
+- [ ] Badge "Non payé" (rouge) si aucun paiement
+- [ ] Bouton "Ajouter un paiement" visible sur factures partielles/non payées
+- [ ] Bouton masqué sur factures soldées
+- [ ] Bouton masqué si pas le créateur de la facture
+- [ ] Filtre "Statut paiement" fonctionne (Toutes/Soldées/Partielles/Non payées)
+
+### Frontend - Modal ajout paiement
+- [ ] Modal s'ouvre au clic sur bouton
+- [ ] Reste à payer affiché correctement
+- [ ] Validation : montant > 0 et <= reste
+- [ ] Validation : date entre création et aujourd'hui
+- [ ] Message d'erreur clair si validation échoue
+- [ ] Soumission réussie → modal se ferme
+- [ ] Toast de succès affiché
+- [ ] Liste des factures se rafraîchit automatiquement
+
+### Frontend - Détail facture
+- [ ] Section "Historique des paiements" affichée
+- [ ] Liste des paiements triée par date (ancien → récent)
+- [ ] Total payé et reste à payer corrects
+- [ ] Si soldée : badge "Facture soldée ✅"
+- [ ] Si partielle : bouton "Ajouter un paiement" présent
+
+### Emails
+- [ ] Email création facture avec paiement 100% : OK
+- [ ] Email création facture avec paiement partiel : OK
+- [ ] Email ajout paiement : OK
+- [ ] Email quand facture devient soldée : OK
+- [ ] Infos correctes (montants, dates, types)
+
+### Tests scénarios complets
+
+**Scénario 1 : Facture payée à 100% à la création**
+- [ ] Créer facture avec "Paiement 100%" = Oui
+- [ ] Vérifier BDD : payment_status = "paid"
+- [ ] Vérifier BDD : 1 paiement créé avec montant = TTC
+- [ ] Vérifier page : Badge "Soldée" (vert)
+- [ ] Vérifier : Pas de bouton "Ajouter paiement"
+
+**Scénario 2 : Facture avec 1er paiement partiel**
+- [ ] Créer facture 100k avec 1er paiement 30k
+- [ ] Vérifier BDD : payment_status = "partial"
+- [ ] Vérifier BDD : 1 paiement de 30k
+- [ ] Vérifier page : Badge "Partiel: 30 000 / 100 000 F"
+- [ ] Vérifier : Bouton "Ajouter paiement" visible
+
+**Scénario 3 : Ajout 2ème paiement**
+- [ ] Sur facture 100k (30k déjà payés), ajouter 40k
+- [ ] Vérifier calcul : Reste = 30k affiché dans modal
+- [ ] Vérifier validation : Refus si montant > 30k
+- [ ] Ajouter paiement de 40k → Succès
+- [ ] Vérifier BDD : 2 paiements (30k + 40k)
+- [ ] Vérifier BDD : payment_status = "partial" (reste 30k)
+- [ ] Vérifier page : Badge "Partiel: 70 000 / 100 000 F"
+
+**Scénario 4 : Paiement final (solde)**
+- [ ] Sur facture 100k (70k payés), ajouter 30k
+- [ ] Vérifier BDD : 3 paiements total
+- [ ] Vérifier BDD : payment_status = "paid" (100k atteints)
+- [ ] Vérifier page : Badge "Soldée" (vert)
+- [ ] Vérifier : Bouton "Ajouter paiement" disparu
+- [ ] Vérifier email : Mention "Facture soldée"
+
+**Scénario 5 : Tentative ajout sur facture soldée**
+- [ ] Tenter POST /api/payments sur facture avec payment_status="paid"
+- [ ] Vérifier : Erreur backend "Facture déjà soldée"
+- [ ] Vérifier frontend : Message d'erreur clair
+
+**Scénario 6 : Utilisateur non créateur**
+- [ ] User A crée facture
+- [ ] User B connecté → Page "Mes factures"
+- [ ] Vérifier : Bouton "Ajouter paiement" absent sur facture de User A
+- [ ] Tenter POST /api/payments avec userId de B
+- [ ] Vérifier : Erreur 403 "Non autorisé"
+
+**Scénario 7 : Export CSV avec mix de factures**
+- [ ] Créer 3 factures :
+  - Facture A : 1 paiement (soldée)
+  - Facture B : 2 paiements (partielle)
+  - Facture C : 0 paiement (non payée)
+- [ ] Exporter CSV
+- [ ] Vérifier colonnes paiements pour chaque facture
+- [ ] Vérifier lisibilité dans Excel/LibreOffice
+
+**Scénario 8 : Validation dates**
+- [ ] Tenter ajouter paiement avec date future → Erreur
+- [ ] Tenter ajouter paiement avec date avant création facture → Erreur
+- [ ] Ajouter paiement avec date = aujourd'hui → OK
+- [ ] Ajouter paiement avec date = date création facture → OK
+
+**Scénario 9 : Modification facture existante (avant déploiement)**
+- [ ] Créer facture AVANT déploiement du système paiements
+- [ ] Déployer nouvelle version
+- [ ] Vérifier : Facture a payment_status = "unpaid"
+- [ ] Vérifier : Badge "Non payé" (rouge)
+- [ ] Vérifier : Bouton "Ajouter paiement" visible
+- [ ] Ajouter 1er paiement → Fonctionne
+
+### Tests mobile
+- [ ] iOS : Créer facture avec paiement partiel
+- [ ] iOS : Ajouter un paiement via modal
+- [ ] iOS : Input date ouvre sélecteur natif
+- [ ] iOS : Clavier numérique pour montants
+- [ ] Android : Même tests
+- [ ] Responsive : Modal "Ajouter paiement" lisible
+
+### Performance
+- [ ] GET /api/invoices avec 50+ factures : < 1s
+- [ ] Pas de N+1 queries (vérifier logs SQL)
+- [ ] Export CSV avec 100+ factures : < 3s
+
+---
+
+## 🎯 READY TO BUILD
+
+Le brief est complet et structuré. **Tu peux le copier-coller dans Replit en un clic.**
+
+**Temps estimé de développement : 4-6 heures**
+(Backend 2h, Frontend 2-3h, Tests/Debug 1h)
+
+Des questions avant de lancer la construction ? 🚀
