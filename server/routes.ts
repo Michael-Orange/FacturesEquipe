@@ -7,7 +7,7 @@ import { storage, generateExpenseNumber } from "./storage";
 import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
 import { sendInvoiceConfirmation } from "./integrations/resend";
-import { insertInvoiceSchema, insertSupplierSchema, invoices, InvoiceWithDetails, paymentMethodsMapping, categories, suppliers, projects } from "@shared/schema";
+import { insertInvoiceSchema, insertSupplierSchema, insertPaymentSchema, invoices, payments, InvoiceWithDetails, InvoiceWithPayments, paymentMethodsMapping, categories, suppliers, projects } from "@shared/schema";
 import { isNull, eq, and, gte, lte, desc, asc, count, sql } from "drizzle-orm";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -255,6 +255,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasBrs,
         invoiceType,
         invoiceNumber,
+        // Payment fields for supplier invoices
+        paymentFull,
+        firstPaymentAmount,
+        firstPaymentDate,
+        firstPaymentType,
       } = req.body;
 
       // Parse boolean and numeric values from form data
@@ -427,6 +432,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Determine category name for legacy field
       const categoryName = categoryData?.appName || category || "Non définie";
 
+      // ==================== PAYMENT HANDLING FOR SUPPLIER INVOICES ====================
+      const isPaymentFull = paymentFull === "true" || paymentFull === true;
+      const parsedFirstPaymentAmount = firstPaymentAmount ? parseFloat(firstPaymentAmount) : null;
+      
+      // Determine initial payment status
+      let initialPaymentStatus: "unpaid" | "partial" | "paid" = "unpaid";
+      if (invoiceType === 'supplier_invoice') {
+        if (isPaymentFull) {
+          initialPaymentStatus = "paid";
+        } else if (parsedFirstPaymentAmount && parsedFirstPaymentAmount > 0) {
+          if (parsedFirstPaymentAmount >= parsedAmountDisplayTTC) {
+            initialPaymentStatus = "paid";
+          } else {
+            initialPaymentStatus = "partial";
+          }
+        }
+      }
+
       // Create invoice with all fields
       const invoice = await storage.createInvoice({
         userName,
@@ -449,7 +472,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invoiceType: invoiceType || null,
         invoiceNumber: finalInvoiceNumber || null,
         amountRealTTC: calculatedAmountRealTTC.toString(),
+        paymentStatus: initialPaymentStatus,
       });
+
+      // Create first payment for supplier invoices
+      if (invoiceType === 'supplier_invoice' && invoice.id) {
+        const paymentAmount = isPaymentFull 
+          ? parsedAmountDisplayTTC 
+          : (parsedFirstPaymentAmount || 0);
+        
+        const paymentDate = firstPaymentDate || invoiceDate;
+        const pType = firstPaymentType || paymentType;
+
+        if (paymentAmount > 0) {
+          await storage.createPayment({
+            invoiceId: invoice.id,
+            amountPaid: paymentAmount.toString(),
+            paymentDate: format(new Date(paymentDate), 'yyyy-MM-dd'),
+            paymentType: pType,
+            createdBy: userToken.id,
+          });
+          console.log(`[INFO] First payment created - Invoice: ${invoice.id} - Amount: ${paymentAmount} - Status: ${initialPaymentStatus}`);
+        }
+      }
 
       // Send confirmation email
       const userEmail = userToken?.email || 
@@ -1414,6 +1459,185 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error resetting database:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ==================== PAYMENT ROUTES ====================
+
+  // Get invoice with payments
+  app.get("/api/invoice/:id/with-payments", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.getInvoiceWithPayments(id);
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Facture introuvable" });
+      }
+
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error fetching invoice with payments:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get invoices with payments for a user
+  app.get("/api/invoices-with-payments/:userName", async (req: Request, res: Response) => {
+    try {
+      const { userName } = req.params;
+      const { type, category_id, has_brs, is_stock_purchase, payment_status, sort_by, sort_order } = req.query;
+
+      const filters: {
+        type?: 'expense' | 'supplier_invoice' | 'all';
+        categoryId?: number | 'all';
+        hasBrs?: boolean;
+        isStockPurchase?: boolean;
+        paymentStatus?: 'paid' | 'partial' | 'unpaid' | 'all';
+        sortBy?: 'date' | 'supplier' | 'amount';
+        sortOrder?: 'asc' | 'desc';
+      } = {};
+
+      if (type && ['expense', 'supplier_invoice', 'all'].includes(type as string)) {
+        filters.type = type as 'expense' | 'supplier_invoice' | 'all';
+      }
+
+      if (category_id) {
+        if (category_id === 'all') {
+          filters.categoryId = 'all';
+        } else {
+          const catId = parseInt(category_id as string);
+          if (!isNaN(catId)) {
+            filters.categoryId = catId;
+          }
+        }
+      }
+
+      if (has_brs === 'true') {
+        filters.hasBrs = true;
+      }
+
+      if (is_stock_purchase === 'true') {
+        filters.isStockPurchase = true;
+      }
+
+      if (payment_status && ['paid', 'partial', 'unpaid', 'all'].includes(payment_status as string)) {
+        filters.paymentStatus = payment_status as 'paid' | 'partial' | 'unpaid' | 'all';
+      }
+
+      if (sort_by && ['date', 'supplier', 'amount'].includes(sort_by as string)) {
+        filters.sortBy = sort_by as 'date' | 'supplier' | 'amount';
+      }
+
+      if (sort_order && ['asc', 'desc'].includes(sort_order as string)) {
+        filters.sortOrder = sort_order as 'asc' | 'desc';
+      }
+
+      const invoices = await storage.getInvoicesWithPaymentsByUser(userName, filters);
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching invoices with payments:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Create a payment for a supplier invoice
+  app.post("/api/payments", async (req: Request, res: Response) => {
+    try {
+      const { token, invoiceId, amountPaid, paymentDate, paymentType } = req.body;
+
+      // Validate token
+      if (!token) {
+        return res.status(401).json({ message: "Token requis" });
+      }
+
+      const userToken = await storage.getUserTokenByToken(token);
+      if (!userToken) {
+        return res.status(401).json({ message: "Token invalide" });
+      }
+
+      // Get the invoice
+      const invoice = await storage.getInvoiceById(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ message: "Facture introuvable" });
+      }
+
+      // Check that user owns this invoice
+      if (invoice.userName !== userToken.name) {
+        return res.status(403).json({ message: "Seul le créateur de la facture peut ajouter un paiement" });
+      }
+
+      // Check invoice is supplier_invoice type
+      if (invoice.invoiceType !== 'supplier_invoice') {
+        return res.status(400).json({ message: "Seules les factures fournisseur peuvent avoir des paiements multiples" });
+      }
+
+      // Check invoice is not already paid
+      if (invoice.paymentStatus === 'paid') {
+        return res.status(400).json({ message: "Cette facture est déjà soldée" });
+      }
+
+      // Calculate remaining amount
+      const totalPaid = await storage.getTotalPaidForInvoice(invoiceId);
+      const amountToPay = parseFloat(invoice.amountDisplayTTC?.toString() || "0");
+      const remaining = amountToPay - totalPaid;
+
+      // Validate amount
+      const amount = parseFloat(amountPaid);
+      if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ message: "Le montant doit être supérieur à 0" });
+      }
+      if (amount > remaining + 0.01) { // Small tolerance for rounding
+        return res.status(400).json({ message: `Le montant ne peut pas dépasser le reste à payer (${remaining.toFixed(2)} F)` });
+      }
+
+      // Validate payment date
+      if (!paymentDate) {
+        return res.status(400).json({ message: "Date de paiement requise" });
+      }
+      const payDate = new Date(paymentDate);
+      const invoiceDate = new Date(invoice.invoiceDate);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+
+      if (payDate < invoiceDate) {
+        return res.status(400).json({ message: "La date de paiement ne peut pas être antérieure à la date de la facture" });
+      }
+      if (payDate > today) {
+        return res.status(400).json({ message: "La date de paiement ne peut pas être dans le futur" });
+      }
+
+      // Validate payment type
+      if (!paymentType) {
+        return res.status(400).json({ message: "Type de règlement requis" });
+      }
+
+      // Create the payment
+      const payment = await storage.createPayment({
+        invoiceId,
+        amountPaid: amount.toString(),
+        paymentDate: format(payDate, 'yyyy-MM-dd'),
+        paymentType,
+        createdBy: userToken.id,
+      });
+
+      // Update payment status
+      const updatedInvoice = await storage.updateInvoicePaymentStatus(invoiceId);
+
+      // Get updated invoice with all payments
+      const invoiceWithPayments = await storage.getInvoiceWithPayments(invoiceId);
+
+      console.log(`[INFO] Payment added - Invoice: ${invoiceId} - Amount: ${amount} - User: ${userToken.name} - NewStatus: ${updatedInvoice?.paymentStatus}`);
+
+      // TODO: Send email notification
+
+      res.status(201).json({
+        success: true,
+        payment,
+        invoice: invoiceWithPayments,
+      });
+    } catch (error) {
+      console.error("Error creating payment:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

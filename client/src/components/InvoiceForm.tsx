@@ -72,6 +72,10 @@ const invoiceFormSchema = z.object({
   projectId: z.string().optional(),
   amountHT: z.number().optional().nullable(),
   amountRealTTC: z.number().optional().nullable(),
+  paymentFull: z.boolean().optional(),
+  firstPaymentAmount: z.string().optional(),
+  firstPaymentDate: z.string().optional(),
+  firstPaymentType: z.string().optional(),
 }).refine(
   (data) => {
     if (data.invoiceType === "supplier_invoice" && (!data.invoiceNumber || data.invoiceNumber.trim() === "")) {
@@ -120,6 +124,7 @@ export function InvoiceForm({
   const [isTVADisabled, setIsTVADisabled] = useState(false);
   const [isInvoiceTypeDisabled, setIsInvoiceTypeDisabled] = useState(false);
   const [defaultCategorySet, setDefaultCategorySet] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<"full" | "partial" | "none">("full");
 
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -146,6 +151,10 @@ export function InvoiceForm({
       projectId: "",
       amountHT: null,
       amountRealTTC: null,
+      paymentFull: true,
+      firstPaymentAmount: "",
+      firstPaymentDate: new Date().toISOString().split("T")[0],
+      firstPaymentType: defaultPaymentType,
     },
   });
 
@@ -356,6 +365,10 @@ export function InvoiceForm({
         projectId: "",
         amountHT: null,
         amountRealTTC: null,
+        paymentFull: true,
+        firstPaymentAmount: "",
+        firstPaymentDate: new Date().toISOString().split("T")[0],
+        firstPaymentType: defaultPaymentType,
       });
       setSelectedFile(null);
       setSelectedSupplier(null);
@@ -363,6 +376,7 @@ export function InvoiceForm({
       setAmountHT(null);
       setAmountRealTTC(null);
       setDefaultCategorySet(true);
+      setPaymentMode("full");
 
       setTimeout(() => setIsSuccess(false), 5000);
     } catch (error) {
@@ -643,6 +657,128 @@ export function InvoiceForm({
           />
           {form.formState.errors.invoiceNumber && (
             <p className="text-sm text-destructive">{form.formState.errors.invoiceNumber.message}</p>
+          )}
+        </div>
+      )}
+
+      {invoiceType === "supplier_invoice" && (
+        <div className="space-y-4 p-4 bg-muted/30 rounded-lg border">
+          <div className="space-y-2">
+            <Label className="text-base font-medium">Paiement initial</Label>
+            <p className="text-sm text-muted-foreground">
+              Indiquez le paiement effectué à la soumission de cette facture
+            </p>
+          </div>
+          
+          <RadioGroup
+            value={paymentMode}
+            onValueChange={(value) => {
+              setPaymentMode(value as "full" | "partial" | "none");
+              form.setValue("paymentFull", value === "full");
+              if (value === "full") {
+                form.setValue("firstPaymentAmount", amountDisplayTTC);
+              } else if (value === "none") {
+                form.setValue("firstPaymentAmount", "0");
+              }
+            }}
+            className="flex flex-wrap gap-4"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="full" id="payment-full" data-testid="radio-payment-full" />
+              <Label htmlFor="payment-full" className="cursor-pointer font-normal">
+                Payé intégralement
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="partial" id="payment-partial" data-testid="radio-payment-partial" />
+              <Label htmlFor="payment-partial" className="cursor-pointer font-normal">
+                Paiement partiel
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="none" id="payment-none" data-testid="radio-payment-none" />
+              <Label htmlFor="payment-none" className="cursor-pointer font-normal">
+                Non payé
+              </Label>
+            </div>
+          </RadioGroup>
+
+          {paymentMode === "partial" && (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="firstPaymentAmount" className="text-base font-medium">
+                  Montant du premier paiement (FCFA) *
+                </Label>
+                <Input
+                  id="firstPaymentAmount"
+                  type="number"
+                  placeholder="Ex: 50000"
+                  {...form.register("firstPaymentAmount")}
+                  className="h-14 text-base"
+                  data-testid="input-first-payment-amount"
+                />
+                {parseFloat(amountDisplayTTC) > 0 && parseFloat(form.watch("firstPaymentAmount") || "0") > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Reste à payer : {formatAmount(parseFloat(amountDisplayTTC) - parseFloat(form.watch("firstPaymentAmount") || "0"))} FCFA
+                  </p>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="firstPaymentDate" className="text-base font-medium">
+                  Date du paiement *
+                </Label>
+                <Input
+                  id="firstPaymentDate"
+                  type="date"
+                  {...form.register("firstPaymentDate")}
+                  className="h-14 text-base"
+                  data-testid="input-first-payment-date"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="firstPaymentType" className="text-base font-medium">
+                  Type de règlement *
+                </Label>
+                <Select
+                  value={form.watch("firstPaymentType")}
+                  onValueChange={(value) => form.setValue("firstPaymentType", value)}
+                >
+                  <SelectTrigger id="firstPaymentType" className="h-14 text-base" data-testid="select-first-payment-type">
+                    <SelectValue placeholder="Sélectionner un type de règlement..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isFatou ? (
+                      <>
+                        <SelectItem value="Wave Business Caisse">Wave Business Caisse</SelectItem>
+                        <SelectItem value="Espèces">Espèces</SelectItem>
+                      </>
+                    ) : (
+                      <>
+                        <SelectItem value="Wave Business">Wave Business</SelectItem>
+                        <SelectItem value="Espèces">Espèces</SelectItem>
+                        <SelectItem value="Perso remboursé par Wave Business">Perso remboursé par Wave Business</SelectItem>
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {paymentMode === "full" && (
+            <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950 rounded-md text-sm text-green-700 dark:text-green-300">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              <span>Facture payée intégralement à {formatAmount(amountDisplayTTC)} FCFA</span>
+            </div>
+          )}
+
+          {paymentMode === "none" && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-md text-sm text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              <span>Facture non payée - vous pourrez ajouter des paiements depuis la page de suivi</span>
+            </div>
           )}
         </div>
       )}

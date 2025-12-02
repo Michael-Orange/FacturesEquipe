@@ -78,6 +78,13 @@ export default function InvoiceSubmission() {
       if (data.amountHT != null) formData.append("amountHT", String(data.amountHT));
       if (data.amountRealTTC != null) formData.append("amountRealTTC", String(data.amountRealTTC));
 
+      if (data.invoiceType === "supplier_invoice") {
+        formData.append("paymentFull", String(data.paymentFull));
+        if (data.firstPaymentAmount) formData.append("firstPaymentAmount", data.firstPaymentAmount);
+        if (data.firstPaymentDate) formData.append("firstPaymentDate", data.firstPaymentDate);
+        if (data.firstPaymentType) formData.append("firstPaymentType", data.firstPaymentType);
+      }
+
       const response = await fetch("/api/invoices", {
         method: "POST",
         body: formData,

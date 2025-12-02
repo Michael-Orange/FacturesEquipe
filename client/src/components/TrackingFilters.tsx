@@ -17,6 +17,7 @@ export interface InvoiceFilters {
   categoryId: string;
   hasBrs: boolean;
   isStockPurchase: boolean;
+  paymentStatus: "all" | "paid" | "partial" | "unpaid";
   sortBy: "date" | "supplier" | "amount";
   sortOrder: "asc" | "desc";
 }
@@ -55,12 +56,17 @@ export function TrackingFilters({ filters, categories, onFiltersChange }: Tracki
     onFiltersChange({ ...filters, isStockPurchase: checked });
   };
 
+  const handlePaymentStatusChange = (value: string) => {
+    onFiltersChange({ ...filters, paymentStatus: value as InvoiceFilters["paymentStatus"] });
+  };
+
   const resetFilters = () => {
     onFiltersChange({
       type: "all",
       categoryId: "all",
       hasBrs: false,
       isStockPurchase: false,
+      paymentStatus: "all",
       sortBy: "date",
       sortOrder: "desc",
     });
@@ -70,7 +76,8 @@ export function TrackingFilters({ filters, categories, onFiltersChange }: Tracki
     filters.type !== "all" ||
     filters.categoryId !== "all" ||
     filters.hasBrs ||
-    filters.isStockPurchase;
+    filters.isStockPurchase ||
+    filters.paymentStatus !== "all";
 
   return (
     <Card className="p-4 mb-4">
@@ -92,7 +99,7 @@ export function TrackingFilters({ filters, categories, onFiltersChange }: Tracki
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Type</Label>
             <Select value={filters.type} onValueChange={handleTypeChange}>
@@ -120,6 +127,21 @@ export function TrackingFilters({ filters, categories, onFiltersChange }: Tracki
                     {cat.appName}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Statut paiement</Label>
+            <Select value={filters.paymentStatus} onValueChange={handlePaymentStatusChange}>
+              <SelectTrigger data-testid="select-filter-payment">
+                <SelectValue placeholder="Tous" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                <SelectItem value="paid">Soldé</SelectItem>
+                <SelectItem value="partial">Partiel</SelectItem>
+                <SelectItem value="unpaid">Non payé</SelectItem>
               </SelectContent>
             </Select>
           </div>

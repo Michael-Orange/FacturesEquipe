@@ -24,6 +24,7 @@ export default function Tracking() {
     categoryId: "all",
     hasBrs: false,
     isStockPurchase: false,
+    paymentStatus: "all",
     sortBy: "date",
     sortOrder: "desc",
   });
@@ -50,6 +51,7 @@ export default function Tracking() {
     if (filters.categoryId !== "all") params.append("category_id", filters.categoryId);
     if (filters.hasBrs) params.append("has_brs", "true");
     if (filters.isStockPurchase) params.append("is_stock_purchase", "true");
+    if (filters.paymentStatus !== "all") params.append("payment_status", filters.paymentStatus);
     if (filters.sortBy !== "date") params.append("sort_by", filters.sortBy);
     if (filters.sortOrder !== "desc") params.append("sort_order", filters.sortOrder);
     return params.toString();

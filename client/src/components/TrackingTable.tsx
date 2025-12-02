@@ -29,6 +29,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+export interface Payment {
+  id: number;
+  invoiceId: string;
+  amountPaid: string;
+  paymentDate: string;
+  paymentType: string;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
 export interface InvoiceWithDetails {
   id: string;
   userName: string;
@@ -59,6 +69,10 @@ export interface InvoiceWithDetails {
   categoryAccountCode?: string;
   displayCategory?: string;
   displayAmount?: string;
+  paymentStatus?: "paid" | "partial" | "unpaid" | null;
+  totalPaid?: number;
+  remainingAmount?: number;
+  payments?: Payment[];
 }
 
 interface TrackingTableProps {
@@ -154,6 +168,51 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
     return badges;
   };
 
+  const getPaymentStatusBadge = (invoice: InvoiceWithDetails) => {
+    if (invoice.invoiceType !== "supplier_invoice") return null;
+    
+    const status = invoice.paymentStatus;
+    
+    if (status === "paid") {
+      return (
+        <Tooltip>
+          <TooltipTrigger>
+            <Badge variant="outline" className="bg-green-50 border-green-300 text-green-700">
+              Soldé
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>Facture entièrement payée</TooltipContent>
+        </Tooltip>
+      );
+    }
+    
+    if (status === "partial") {
+      return (
+        <Tooltip>
+          <TooltipTrigger>
+            <Badge variant="outline" className="bg-orange-50 border-orange-300 text-orange-700">
+              Partiel
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            Payé: {formatAmount(invoice.totalPaid || 0)} / Reste: {formatAmount(invoice.remainingAmount || 0)} FCFA
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+    
+    return (
+      <Tooltip>
+        <TooltipTrigger>
+          <Badge variant="outline" className="bg-red-50 border-red-300 text-red-700">
+            Non payé
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>Aucun paiement enregistré</TooltipContent>
+      </Tooltip>
+    );
+  };
+
   if (invoices.length === 0) {
     return (
       <Card className="p-12 bg-muted/30">
@@ -196,7 +255,10 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                       {format(new Date(invoice.invoiceDate), "d MMMM yyyy", { locale: fr })}
                     </p>
                   </div>
-                  {getTypeBadge(invoice)}
+                  <div className="flex gap-1">
+                    {getTypeBadge(invoice)}
+                    {getPaymentStatusBadge(invoice)}
+                  </div>
                 </div>
 
                 <div className="flex justify-between items-center">
@@ -207,6 +269,11 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                     {invoice.vatApplicable && invoice.amountHT && (
                       <p className="text-xs text-muted-foreground">
                         HT: {formatAmount(invoice.amountHT)} FCFA
+                      </p>
+                    )}
+                    {invoice.invoiceType === "supplier_invoice" && invoice.paymentStatus === "partial" && (
+                      <p className="text-xs text-orange-600">
+                        Reste: {formatAmount(invoice.remainingAmount || 0)} FCFA
                       </p>
                     )}
                   </div>
@@ -287,6 +354,9 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                 </TableHead>
                 <TableHead className="text-primary-foreground font-semibold">N° Facture</TableHead>
                 <TableHead className="text-primary-foreground font-semibold text-center">
+                  Paiement
+                </TableHead>
+                <TableHead className="text-primary-foreground font-semibold text-center">
                   Indicateurs
                 </TableHead>
                 <TableHead className="text-primary-foreground font-semibold text-center">
@@ -334,6 +404,13 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {invoice.invoiceNumber || "-"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-center">
+                      {getPaymentStatusBadge(invoice) || (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-center">
