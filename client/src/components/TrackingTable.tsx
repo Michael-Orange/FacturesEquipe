@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Trash2, FileText, Pencil, Eye, Package, Receipt } from "lucide-react";
+import { Download, Trash2, FileText, Pencil, Eye, Package, Receipt, CreditCard } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -81,9 +81,10 @@ interface TrackingTableProps {
   onEdit: (invoiceId: string) => void;
   onDelete: (invoiceId: string) => Promise<void>;
   onViewDetails: (invoice: InvoiceWithDetails) => void;
+  onAddPayment?: (invoice: InvoiceWithDetails) => void;
 }
 
-export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDetails }: TrackingTableProps) {
+export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDetails, onAddPayment }: TrackingTableProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithDetails | null>(null);
   const [loadingDownload, setLoadingDownload] = useState<string | null>(null);
@@ -300,7 +301,7 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                   </p>
                 )}
 
-                <div className="flex gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex gap-2 pt-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                   <Button
                     variant="outline"
                     size="sm"
@@ -332,6 +333,20 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                     <Trash2 className="h-4 w-4 mr-2" />
                     Supprimer
                   </Button>
+                  {invoice.invoiceType === "supplier_invoice" && 
+                   invoice.paymentStatus !== "paid" && 
+                   onAddPayment && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onAddPayment(invoice)}
+                      className="flex-1 text-teal-600 border-teal-600 hover:bg-teal-50"
+                      data-testid={`button-add-payment-mobile-${invoice.id}`}
+                    >
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Payer
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>
@@ -476,6 +491,24 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                         </TooltipTrigger>
                         <TooltipContent>Supprimer</TooltipContent>
                       </Tooltip>
+                      {invoice.invoiceType === "supplier_invoice" && 
+                       invoice.paymentStatus !== "paid" && 
+                       onAddPayment && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => onAddPayment(invoice)}
+                              className="text-teal-600 border-teal-600 hover:bg-teal-50"
+                              data-testid={`button-add-payment-${invoice.id}`}
+                            >
+                              <CreditCard className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Ajouter un paiement</TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

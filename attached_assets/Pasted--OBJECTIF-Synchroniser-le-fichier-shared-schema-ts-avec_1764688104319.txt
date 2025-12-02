@@ -1,0 +1,335 @@
+# OBJECTIF
+Synchroniser le fichier shared/schema.ts avec la structure réelle de la base de données de production
+
+# CONTEXTE
+Le fichier shared/schema.ts (schéma Drizzle ORM) n'est pas à jour par rapport à la BDD de production.
+Plusieurs colonnes existent en BDD mais ne sont pas déclarées dans le schema TypeScript, ce qui crée :
+- Confusion lors du développement
+- Autocomplete TypeScript incomplet
+- Risque d'erreurs lors des migrations
+- Documentation du code incorrecte
+
+EXEMPLE IDENTIFIÉ :
+- `invoice_type` existe en BDD mais manque dans schema.ts
+- `payment_status` doit être ajouté
+- D'autres colonnes peuvent manquer
+
+# APPROCHE
+
+## Étape 1 : Audit de la BDD actuelle
+Interroger la BDD pour lister TOUTES les colonnes de chaque table utilisée dans l'app.
+
+## Étape 2 : Comparer avec schema.ts
+Identifier les colonnes présentes en BDD mais absentes dans schema.ts.
+
+## Étape 3 : Mettre à jour schema.ts
+Ajouter les colonnes manquantes avec les bons types TypeScript/Drizzle.
+
+## Étape 4 : Vérifier la cohérence
+S'assurer que tous les champs utilisés dans le code sont bien déclarés.
+
+# TABLES À AUDITER
+
+Les tables principales de l'application FacturesEquipe :
+
+1. **invoices** (factures)
+2. **payments** (paiements - nouvellement créée)
+3. **suppliers** (fournisseurs)
+4. **projects** (projets)
+5. **categories** (catégories)
+6. **user_tokens** (tokens utilisateurs)
+7. **admin_config** (configuration admin)
+
+# REQUÊTE SQL POUR AUDIT
+
+**Exécuter pour chaque table :**
+
+```sql
+-- Lister toutes les colonnes de la table invoices
+SELECT 
+  column_name,
+  data_type,
+  is_nullable,
+  column_default
+FROM information_schema.columns 
+WHERE table_name = 'invoices' 
+ORDER BY ordinal_position;
+Répéter pour :
+table_name = 'payments'
+table_name = 'suppliers'
+table_name = 'projects'
+table_name = 'categories'
+table_name = 'user_tokens'
+table_name = 'admin_config'
+MISE À JOUR DU SCHEMA
+Fichier : shared/schema.ts
+Table invoices
+Colonnes CONNUES manquantes (à vérifier et ajouter) :
+export const invoices = pgTable("invoices", {
+  // Colonnes existantes dans le schema actuel
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userName: varchar("user_name").notNull(),
+  invoiceDate: varchar("invoice_date").notNull(),
+  supplierId: varchar("supplier_id").notNull(),
+  category: varchar("category").notNull(),
+  amountTTC: varchar("amount_ttc").notNull(),
+  hasTva: boolean("has_tva").notNull().default(false),
+  amountHT: varchar("amount_ht"),
+  description: varchar("description"),
+  paymentType: varchar("payment_type").notNull(),
+  projectId: varchar("project_id"),
+  fileName: varchar("file_name").notNull(),
+  filePath: varchar("file_path").notNull(),
+  driveFileId: varchar("drive_file_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  archive: boolean("archive").default(false),
+  
+  // COLONNES À AJOUTER (vérifier en BDD) :
+  invoiceType: varchar("invoice_type").default("expense"),           // NOUVEAU
+  invoiceNumber: varchar("invoice_number"),                          // NOUVEAU (probablement existe)
+  paymentStatus: varchar("payment_status").default("unpaid"),        // NOUVEAU
+  isStockPurchase: boolean("is_stock_purchase").default(false),      // NOUVEAU (probablement existe)
+  categoryId: integer("category_id"),                                // NOUVEAU (si existe)
+  hasBrs: boolean("has_brs").default(false),                         // NOUVEAU (si BRS existe)
+  brsPercentage: varchar("brs_percentage"),                          // NOUVEAU (si BRS existe)
+  amountDisplayTTC: varchar("amount_display_ttc"),                   // NOUVEAU (montant affiché)
+  amountRealTTC: varchar("amount_real_ttc"),                         // NOUVEAU (montant comptable)
+  vatApplicable: boolean("vat_applicable"),                          // NOUVEAU (si différent de has_tva)
+  
+  // Vérifier s'il y a d'autres colonnes via la requête SQL
+});
+Table payments (NOUVELLE - vérifier qu'elle est complète)
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: varchar("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  amountPaid: varchar("amount_paid").notNull(),
+  paymentDate: varchar("payment_date").notNull(),
+  paymentType: varchar("payment_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  createdBy: varchar("created_by").references(() => userTokens.id),
+});
+Table suppliers
+Vérifier les colonnes existantes et ajouter si manquantes :
+export const suppliers = pgTable("suppliers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  // Vérifier s'il y a d'autres colonnes (contact, adresse, etc.)
+});
+Table projects
+export const projects = pgTable("projects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  // Vérifier colonnes supplémentaires
+});
+Table categories
+export const categories = pgTable("categories", {
+  id: serial("id").primaryKey(),
+  name: varchar("name").notNull(),
+  // Vérifier colonnes supplémentaires
+});
+Table user_tokens
+export const userTokens = pgTable("user_tokens", {
+  id: varchar("id").primaryKey(),
+  userName: varchar("user_name").notNull(),
+  token: varchar("token").notNull(),
+  // Vérifier colonnes supplémentaires (created_at, last_login, etc.)
+});
+Table admin_config
+export const adminConfig = pgTable("admin_config", {
+  id: serial("id").primaryKey(),
+  key: varchar("key").notNull().unique(),
+  value: varchar("value"),
+  // Vérifier colonnes supplémentaires
+});
+PROCESS DE TRAVAIL
+1. Audit BDD (5-10 min)
+Pour chaque table, exécuter :
+SELECT column_name, data_type, is_nullable 
+FROM information_schema.columns 
+WHERE table_name = 'NOM_TABLE'
+ORDER BY ordinal_position;
+Noter toutes les colonnes retournées.
+2. Comparer avec schema.ts actuel (5 min)
+Ouvrir shared/schema.ts et identifier les colonnes manquantes.
+3. Ajouter les colonnes manquantes (10 min)
+Pour chaque colonne manquante, ajouter la déclaration avec :
+Le bon type Drizzle (varchar, integer, boolean, timestamp)
+Les contraintes (notNull, default, references)
+Un commentaire si nécessaire
+4. Vérifier les types des schémas d'insertion (5 min)
+Mettre à jour les schémas Zod si nécessaire :
+export const insertInvoiceSchema = createInsertSchema(invoices).pick({
+  // Ajouter les nouveaux champs si nécessaire
+  invoiceType: true,
+  paymentStatus: true,
+  // etc.
+});
+5. Vérifier la compilation TypeScript (5 min)
+npm run typecheck
+# ou
+tsc --noEmit
+Corriger les erreurs éventuelles.
+MAPPING DES TYPES SQL → DRIZZLE
+Type SQL	Type Drizzle	Exemple
+VARCHAR	varchar("column_name")	userName: varchar("user_name")
+INTEGER	integer("column_name")	categoryId: integer("category_id")
+SERIAL	serial("column_name")	id: serial("id")
+BOOLEAN	boolean("column_name")	hasTva: boolean("has_tva")
+TIMESTAMP	timestamp("column_name")	createdAt: timestamp("created_at")
+NUMERIC	numeric("column_name")	Ou varchar si stocké en string
+TEXT	text("column_name")	description: text("description")
+Notes :
+Si nullable → Ne pas ajouter .notNull()
+Si default → Ajouter .default(valeur)
+Si foreign key → Ajouter .references(() => autreTable.colonne)
+CONTRAINTES ET DEFAULTS
+Exemples :
+// NOT NULL
+userName: varchar("user_name").notNull(),
+
+// DEFAULT
+archive: boolean("archive").default(false),
+
+// DEFAULT avec SQL
+id: varchar("id").default(sql`gen_random_uuid()`),
+
+// FOREIGN KEY
+supplierId: varchar("supplier_id").references(() => suppliers.id),
+
+// FOREIGN KEY avec CASCADE DELETE
+invoiceId: varchar("invoice_id").references(() => invoices.id, { onDelete: "cascade" }),
+
+// UNIQUE
+token: varchar("token").notNull().unique(),
+POINTS D'ATTENTION
+NE PAS modifier la structure BDD
+Ce brief synchronise le schema TypeScript avec la BDD existante
+Aucune migration SQL à créer
+Pas de drizzle-kit push
+Vérifier les noms de colonnes
+SQL utilise snake_case : user_name
+TypeScript utilise camelCase : userName
+Drizzle gère la conversion automatiquement
+Types VARCHAR pour les montants
+Les montants sont stockés en VARCHAR dans cette app (pas NUMERIC)
+Garder varchar("amount_ttc") même si ce sont des nombres
+Colonnes optionnelles
+Si is_nullable = YES en BDD → Ne pas ajouter .notNull()
+Exemple : description: varchar("description") (pas .notNull())
+Relations entre tables
+Ajouter les .references() pour les foreign keys
+Respecter les CASCADE DELETE si définis en BDD
+Ne pas casser l'existant
+Les colonnes déjà présentes dans schema.ts sont correctes
+Ne modifier QUE pour ajouter les colonnes manquantes
+Ne pas supprimer de colonnes existantes
+VALIDATION POST-MODIFICATION
+1. Compilation TypeScript
+npm run typecheck
+Doit passer sans erreur.
+2. Vérifier l'import dans les fichiers
+# Chercher les imports du schema
+rg "from.*schema" --type ts
+S'assurer qu'aucune erreur TypeScript n'apparaît.
+3. Tester une requête simple
+// Dans server/storage.ts ou routes.ts
+const allInvoices = await db.select().from(invoices).limit(1);
+console.log(allInvoices[0]); // Doit afficher toutes les colonnes
+4. Vérifier l'autocomplete
+Dans VS Code, taper invoices. et vérifier que toutes les colonnes apparaissent.
+EXEMPLE DE RÉSULTAT ATTENDU
+Avant (schema.ts incomplet) :
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey(),
+  userName: varchar("user_name").notNull(),
+  amountTTC: varchar("amount_ttc").notNull(),
+  // ... quelques colonnes seulement
+});
+Après (schema.ts complet) :
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userName: varchar("user_name").notNull(),
+  invoiceDate: varchar("invoice_date").notNull(),
+  supplierId: varchar("supplier_id").notNull(),
+  category: varchar("category").notNull(),
+  amountTTC: varchar("amount_ttc").notNull(),
+  amountDisplayTTC: varchar("amount_display_ttc"),
+  amountRealTTC: varchar("amount_real_ttc"),
+  invoiceType: varchar("invoice_type").default("expense"),
+  invoiceNumber: varchar("invoice_number"),
+  paymentStatus: varchar("payment_status").default("unpaid"),
+  paymentType: varchar("payment_type").notNull(),
+  isStockPurchase: boolean("is_stock_purchase").default(false),
+  hasTva: boolean("has_tva").notNull().default(false),
+  amountHT: varchar("amount_ht"),
+  description: varchar("description"),
+  projectId: varchar("project_id"),
+  fileName: varchar("file_name").notNull(),
+  filePath: varchar("file_path").notNull(),
+  driveFileId: varchar("drive_file_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  archive: boolean("archive").default(false),
+  // ... TOUTES les colonnes de la BDD
+});
+BÉNÉFICES DE CETTE SYNCHRONISATION
+✅ Autocomplete complet : VS Code suggère toutes les colonnes
+✅ Documentation à jour : Le schema documente la structure réelle
+✅ Détection d'erreurs : TypeScript détecte les fautes de frappe
+✅ Cohérence : Code et BDD alignés
+✅ Facilite les migrations futures : Base propre pour évoluer
+✅ Onboarding développeurs : Nouveau dev comprend la structure facilement
+CHECKLIST POST-IMPLÉMENTATION
+ Requêtes SQL exécutées pour toutes les tables
+ Toutes les colonnes BDD identifiées
+ Colonnes manquantes ajoutées dans schema.ts
+ Types Drizzle corrects utilisés
+ Contraintes (notNull, default, references) ajoutées
+ Table payments complète et correcte
+ Schémas Zod mis à jour si nécessaire
+ npm run typecheck passe sans erreur
+ Autocomplete fonctionne dans VS Code
+ Aucune régression dans le code existant
+ Commit avec message clair : "chore: sync schema.ts with production database"
+TEMPS ESTIMÉ
+⏱️ 30-45 minutes
+Audit BDD : 10 min
+Identification colonnes manquantes : 5 min
+Mise à jour schema.ts : 15 min
+Tests et validation : 10 min
+
+---
+
+## ❓ QUESTIONS DE VALIDATION
+
+**Après implémentation, vérifie :**
+
+1. **Toutes les colonnes sont-elles présentes ?**
+   - Fais un `SELECT * FROM invoices LIMIT 1` en BDD
+   - Compare avec `invoices.` autocomplete dans VS Code
+   - Chaque colonne BDD doit avoir son équivalent TypeScript
+
+2. **Les types sont-ils corrects ?**
+   - VARCHAR → `varchar()`
+   - INTEGER → `integer()`
+   - BOOLEAN → `boolean()`
+   - TIMESTAMP → `timestamp()`
+
+3. **Les contraintes sont-elles respectées ?**
+   - NOT NULL en BDD → `.notNull()` dans schema
+   - DEFAULT en BDD → `.default()` dans schema
+   - FOREIGN KEY en BDD → `.references()` dans schema
+
+---
+
+## 🎯 RÉSULTAT ATTENDU
+
+**Après ce brief :**
+- ✅ `shared/schema.ts` reflète exactement la structure BDD
+- ✅ Autocomplete TypeScript complet
+- ✅ Aucune colonne "fantôme" utilisée sans déclaration
+- ✅ Documentation du schéma à jour
+- ✅ Base solide pour futures évolutions
+
+**Temps estimé : 30-45 min** ⏱️
+
+Tu peux copier-coller ce brief dans Replit ! 🚀

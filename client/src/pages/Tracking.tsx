@@ -282,6 +282,7 @@ export default function Tracking() {
           onEdit={(invoiceId) => setLocation(`/edit/${invoiceId}/${userToken}`)}
           onDelete={deleteInvoiceMutation.mutateAsync}
           onViewDetails={handleViewDetails}
+          onAddPayment={handleAddPayment}
         />
       </main>
 

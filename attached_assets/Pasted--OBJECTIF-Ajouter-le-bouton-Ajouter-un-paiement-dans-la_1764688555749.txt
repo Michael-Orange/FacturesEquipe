@@ -1,0 +1,196 @@
+# OBJECTIF
+Ajouter le bouton "Ajouter un paiement" dans la colonne Actions du tableau des factures
+
+# PROBLÈME
+Le bouton permettant d'ajouter un paiement sur une facture partiellement payée n'apparaît pas dans la colonne Actions, alors que la modal AddPaymentModal existe déjà.
+
+# CONTEXTE
+Facture test visible :
+- ID : 487a6eab-8dbb-4402-9678-68e8b725e226
+- Montant : 50 000 F
+- Paiement actuel : 20 000 F
+- Statut : "Partiel"
+- Type : "supplier_invoice"
+- Utilisateur : Michael
+
+Le bouton "Ajouter un paiement" DEVRAIT être visible mais ne l'est pas.
+
+# FICHIER À MODIFIER
+
+**Fichier :** `client/src/components/TrackingTable.tsx`
+
+**Section :** Colonne "Actions" du tableau
+
+# SOLUTION
+
+## 1. Ajouter l'import de l'icône
+
+```typescript
+import { CreditCard } from "lucide-react";
+2. Ajouter le bouton dans la colonne Actions
+Localiser la section qui affiche les boutons d'action :
+Voir (Eye)
+Télécharger (Download)
+Modifier (Pencil)
+Supprimer (Trash)
+Ajouter APRÈS ces boutons :
+{/* Bouton Ajouter un paiement - Uniquement pour factures fournisseur partielles */}
+{invoice.invoiceType === "supplier_invoice" && 
+ invoice.paymentStatus !== "paid" &&
+ invoice.userName === currentUser?.userName && (
+  <Button
+    variant="outline"
+    size="sm"
+    className="text-teal-600 border-teal-600 hover:bg-teal-50 flex items-center gap-1"
+    onClick={(e) => {
+      e.stopPropagation();
+      setSelectedInvoice(invoice);
+      setIsAddPaymentModalOpen(true);
+    }}
+    title="Ajouter un paiement"
+  >
+    <CreditCard className="h-4 w-4" />
+    <span className="hidden sm:inline">Payer</span>
+  </Button>
+)}
+3. Vérifier que les états existent
+Dans le composant TrackingTable, vérifier la présence de :
+const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+const [isAddPaymentModalOpen, setIsAddPaymentModalOpen] = useState(false);
+Si ces états n'existent pas, les créer.
+4. Vérifier que la modal est rendue
+À la fin du JSX du composant, vérifier la présence de :
+{selectedInvoice && (
+  <AddPaymentModal
+    invoice={selectedInvoice}
+    isOpen={isAddPaymentModalOpen}
+    onClose={() => {
+      setIsAddPaymentModalOpen(false);
+      setSelectedInvoice(null);
+    }}
+    onSuccess={() => {
+      setIsAddPaymentModalOpen(false);
+      setSelectedInvoice(null);
+      // Rafraîchir la liste
+      queryClient.invalidateQueries(["/api/invoices-with-payments"]);
+    }}
+  />
+)}
+Si cette modal n'est pas rendue, l'ajouter.
+5. Vérifier l'import de AddPaymentModal
+import { AddPaymentModal } from "./AddPaymentModal";
+CONDITIONS D'AFFICHAGE DU BOUTON
+Le bouton s'affiche UNIQUEMENT si ces 3 conditions sont réunies :
+Type de facture : invoice.invoiceType === "supplier_invoice"
+Les dépenses (expense) n'ont PAS ce bouton
+Statut de paiement : invoice.paymentStatus !== "paid"
+Les factures déjà soldées n'ont PAS ce bouton
+Les factures "partial" ou "unpaid" ONT ce bouton
+Permissions : invoice.userName === currentUser?.userName
+Seul le créateur de la facture peut ajouter un paiement
+COMPORTEMENT
+Au clic sur le bouton :
+Stopper la propagation de l'événement (e.stopPropagation()) pour éviter de déclencher d'autres actions
+Définir la facture sélectionnée (setSelectedInvoice(invoice))
+Ouvrir la modal (setIsAddPaymentModalOpen(true))
+La modal AddPaymentModal gère :
+Affichage du reste à payer
+Formulaire de saisie (montant, date, type)
+Validation
+Soumission à l'API POST /api/payments
+Fermeture et rafraîchissement
+DESIGN
+Apparence du bouton :
+Variant : outline (bordure visible)
+Taille : sm (petit, cohérent avec les autres boutons)
+Couleurs : Texte et bordure teal-600 (couleur primaire de l'app)
+Hover : Background teal-50
+Icône : CreditCard de lucide-react
+Texte : "Payer" (visible sur desktop, masqué sur mobile avec hidden sm:inline)
+Responsive :
+Sur mobile : Icône seule (💳)
+Sur desktop : Icône + texte "Payer"
+VÉRIFICATION POST-IMPLÉMENTATION
+Recharger l'application
+Tester sur facture partiellement payée :
+ID : 487a6eab-8dbb-4402-9678-68e8b725e226
+Vérifier que le bouton "💳 Payer" apparaît dans la colonne Actions
+Cliquer sur le bouton :
+La modal doit s'ouvrir
+Afficher "Reste à payer : 30 000 F" (50k - 20k)
+Formulaire doit être utilisable
+Ajouter un paiement de test :
+Montant : 15 000 F
+Date : Aujourd'hui
+Type : Wave Business
+Soumettre
+Vérifier après soumission :
+Modal se ferme
+Badge passe de "Partiel: 20 000 / 50 000 F" à "Partiel: 35 000 / 50 000 F"
+Bouton "Payer" toujours visible
+Tester sur facture soldée :
+Créer une facture avec paiement 100%
+Vérifier que le bouton "Payer" n'apparaît PAS
+Tester sur dépense :
+Afficher une dépense (invoice_type = "expense")
+Vérifier que le bouton "Payer" n'apparaît PAS
+POINTS D'ATTENTION
+Ne pas casser les boutons existants
+Ajouter le nouveau bouton SANS modifier les autres
+Garder l'ordre : Voir, Télécharger, Modifier, Supprimer, puis Payer
+Gestion du currentUser
+Vérifier que currentUser existe avant de comparer
+Utiliser l'optional chaining : currentUser?.userName
+Stop propagation
+Important pour éviter de déclencher d'autres événements (ouverture détail facture par exemple)
+Cohérence visuelle
+Le bouton doit avoir le même style que les autres boutons de la colonne
+Taille sm cohérente
+Gap entre icône et texte
+Accessibilité
+Ajouter attribut title="Ajouter un paiement" pour le tooltip
+Le bouton doit être cliquable au clavier (Enter/Space)
+STRUCTURE ATTENDUE DE LA COLONNE ACTIONS
+<TableCell className="text-right">
+  <div className="flex items-center justify-end gap-2">
+    {/* Bouton Voir */}
+    <Button variant="ghost" size="sm" onClick={handleView}>
+      <Eye className="h-4 w-4" />
+    </Button>
+    
+    {/* Bouton Télécharger */}
+    <Button variant="ghost" size="sm" onClick={handleDownload}>
+      <Download className="h-4 w-4" />
+    </Button>
+    
+    {/* Bouton Modifier */}
+    <Button variant="ghost" size="sm" onClick={handleEdit}>
+      <Pencil className="h-4 w-4" />
+    </Button>
+    
+    {/* Bouton Supprimer */}
+    <Button variant="ghost" size="sm" onClick={handleDelete}>
+      <Trash className="h-4 w-4" />
+    </Button>
+    
+    {/* NOUVEAU : Bouton Ajouter un paiement */}
+    {invoice.invoiceType === "supplier_invoice" && 
+     invoice.paymentStatus !== "paid" &&
+     invoice.userName === currentUser?.userName && (
+      <Button
+        variant="outline"
+        size="sm"
+        className="text-teal-600 border-teal-600 hover:bg-teal-50 flex items-center gap-1"
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedInvoice(invoice);
+          setIsAddPaymentModalOpen(true);
+        }}
+        title="Ajouter un paiement"
+      >
+        <CreditCard className="h-4 w-4" />
+        <span className="hidden sm:inline">Payer</span>
+      </Button>
+    )}
+  </div>
+</TableCell>
