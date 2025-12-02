@@ -1,0 +1,589 @@
+# OBJECTIF
+Corriger l'affichage des paiements dans la page "Mes factures" et ajouter le bouton "Ajouter un paiement"
+
+# CONTEXTE
+Le système de paiements multiples est fonctionnel en backend :
+- ✅ Table `payments` existe et contient les paiements
+- ✅ Colonne `payment_status` existe dans `invoices`
+- ✅ Les paiements sont correctement enregistrés en BDD
+
+PROBLÈME IDENTIFIÉ :
+- ❌ La colonne "Paiement" affiche "Non payé" pour toutes les factures (même celles avec payment_status = "partial")
+- ❌ Les montants payés ne sont pas affichés (pas de "Partiel: 20 000 / 50 000 F")
+- ❌ Le bouton "Ajouter un paiement" n'existe pas dans la colonne Actions
+
+# ANALYSE TECHNIQUE
+
+## Données en BDD (EXEMPLE FACTURE TEST)
+
+**Table invoices :**
+- ID : 487a6eab-8dbb-4402-9678-68e8b725e226
+- Montant : 50 000 F
+- payment_status : "partial"
+- invoice_type : "supplier_invoice"
+
+**Table payments :**
+- invoice_id : 487a6eab-8dbb-4402-9678-68e8b725e226
+- amount_paid : 20000
+- payment_date : 2025-12-02
+- payment_type : Wave Business
+
+**Résultat attendu dans l'interface :**
+- Badge : "⚠️ Partiel: 20 000 / 50 000 F" (orange)
+- Bouton : "💳 Ajouter un paiement" visible
+
+**Résultat actuel :**
+- Badge : "Non payé" (rouge)
+- Bouton : Absent
+
+# SPÉCIFICATIONS TECHNIQUES
+
+## 1. BACKEND - Route GET /api/invoices (server/routes.ts)
+
+### Problème actuel
+La route renvoie les factures SANS les champs calculés `totalPaid` et `remainingAmount`.
+
+### Solution requise
+
+**Modifier la requête SQL pour JOIN avec payments et calculer les totaux :**
+
+```typescript
+// Dans server/routes.ts - Route GET /api/invoices
+
+app.get("/api/invoices", async (req, res) => {
+  const { userName } = req.query;
+  
+  try {
+    // Récupérer les factures avec calcul des paiements
+    const invoicesQuery = `
+      SELECT 
+        i.*,
+        COALESCE(SUM(CAST(p.amount_paid AS NUMERIC)), 0) as total_paid,
+        CASE 
+          WHEN i.invoice_type = 'supplier_invoice' 
+          THEN CAST(COALESCE(i.amount_display_ttc, i.amount_ttc) AS NUMERIC) - COALESCE(SUM(CAST(p.amount_paid AS NUMERIC)), 0)
+          ELSE NULL
+        END as remaining_amount
+      FROM invoices i
+      LEFT JOIN payments p ON i.id = p.invoice_id
+      WHERE i.user_name = $1
+      GROUP BY i.id
+      ORDER BY i.invoice_date DESC
+    `;
+    
+    const result = await db.query(invoicesQuery, [userName]);
+    
+    // Formater les résultats
+    const invoices = result.rows.map(invoice => ({
+      ...invoice,
+      totalPaid: invoice.total_paid ? parseFloat(invoice.total_paid) : 0,
+      remainingAmount: invoice.remaining_amount ? parseFloat(invoice.remaining_amount) : null
+    }));
+    
+    res.json(invoices);
+  } catch (error) {
+    console.error("Error fetching invoices:", error);
+    res.status(500).json({ error: "Failed to fetch invoices" });
+  }
+});
+IMPORTANT :
+Utiliser COALESCE pour gérer les factures sans paiements (retourne 0)
+Utiliser CAST AS NUMERIC pour les calculs (les montants sont stockés en VARCHAR)
+Calculer remaining_amount UNIQUEMENT pour les factures fournisseur
+Le LEFT JOIN permet d'inclure les factures sans paiements
+Réponse JSON attendue :
+[
+  {
+    "id": "487a6eab-8dbb-4402-9678-68e8b725e226",
+    "userName": "Michael",
+    "invoiceType": "supplier_invoice",
+    "amountTTC": "50000",
+    "amountDisplayTTC": "50000",
+    "paymentStatus": "partial",
+    "totalPaid": 20000,
+    "remainingAmount": 30000,
+    ...
+  }
+]
+2. FRONTEND - TrackingPage (client/src/pages/Tracking.tsx)
+Problème actuel
+La colonne "Paiement" affiche uniquement le texte brut "Non payé" sans utiliser les données de paiement.
+Solution requise
+Modifier l'affichage de la colonne "Paiement" :
+// Dans TrackingPage.tsx - Colonne Paiement
+
+<TableCell>
+  {invoice.invoiceType === "supplier_invoice" ? (
+    // Badge de statut pour factures fournisseur
+    invoice.paymentStatus === "paid" ? (
+      <Badge className="bg-teal-600 text-white">
+        ✅ Payé
+      </Badge>
+    ) : invoice.paymentStatus === "partial" ? (
+      <Badge className="bg-orange-500 text-white">
+        ⚠️ Partiel: {invoice.totalPaid?.toLocaleString('fr-FR')} / {parseFloat(invoice.amountDisplayTTC || invoice.amountTTC).toLocaleString('fr-FR')} F
+      </Badge>
+    ) : (
+      <Badge className="bg-red-500 text-white">
+        ❌ Non payé
+      </Badge>
+    )
+  ) : (
+    // Pour les dépenses : afficher le type de règlement (comme avant)
+    <span className="text-sm">{invoice.paymentType}</span>
+  )}
+</TableCell>
+Logique :
+Si invoice_type = "supplier_invoice" → Afficher badge de statut
+Si invoice_type = "expense" → Afficher type de règlement (comportement actuel)
+Les montants sont formatés avec séparateurs de milliers (ex: 20 000 F)
+Classes Tailwind utilisées :
+bg-teal-600 : Badge vert pour "Payé"
+bg-orange-500 : Badge orange pour "Partiel"
+bg-red-500 : Badge rouge pour "Non payé"
+text-white : Texte blanc pour lisibilité
+3. FRONTEND - Bouton "Ajouter un paiement" (TrackingPage.tsx)
+Problème actuel
+Le bouton "Ajouter un paiement" n'existe pas dans la colonne Actions.
+Solution requise
+Ajouter le bouton dans la colonne Actions :
+// Dans TrackingPage.tsx - Colonne Actions
+
+<TableCell>
+  <div className="flex items-center gap-2">
+    {/* Boutons existants : Voir, Télécharger, Modifier, Supprimer */}
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => handleView(invoice)}
+    >
+      <Eye className="h-4 w-4" />
+    </Button>
+    
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => handleDownload(invoice)}
+    >
+      <Download className="h-4 w-4" />
+    </Button>
+    
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => handleEdit(invoice)}
+    >
+      <Pencil className="h-4 w-4" />
+    </Button>
+    
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => handleDelete(invoice)}
+    >
+      <Trash className="h-4 w-4" />
+    </Button>
+    
+    {/* NOUVEAU BOUTON : Ajouter un paiement */}
+    {invoice.invoiceType === "supplier_invoice" && 
+     invoice.paymentStatus !== "paid" &&
+     invoice.userName === currentUser.userName && (
+      <Button
+        variant="outline"
+        size="sm"
+        className="text-teal-600 border-teal-600 hover:bg-teal-50"
+        onClick={() => handleAddPayment(invoice)}
+      >
+        <CreditCard className="h-4 w-4 mr-1" />
+        Ajouter un paiement
+      </Button>
+    )}
+  </div>
+</TableCell>
+Conditions d'affichage :
+invoice.invoiceType === "supplier_invoice" → Uniquement factures fournisseur
+invoice.paymentStatus !== "paid" → Facture pas encore soldée
+invoice.userName === currentUser.userName → Seul le créateur peut ajouter un paiement
+Design :
+Variant outline avec bordure teal (couleur primaire de l'app)
+Icône CreditCard de lucide-react
+Texte "Ajouter un paiement" explicite
+Import nécessaire :
+import { CreditCard } from "lucide-react";
+4. FRONTEND - Handler "Ajouter un paiement"
+État et fonction
+Ajouter dans TrackingPage.tsx :
+// État pour la modal
+const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+const [isAddPaymentModalOpen, setIsAddPaymentModalOpen] = useState(false);
+
+// Handler au clic sur "Ajouter un paiement"
+const handleAddPayment = (invoice: Invoice) => {
+  setSelectedInvoice(invoice);
+  setIsAddPaymentModalOpen(true);
+};
+
+// Handler après succès d'ajout de paiement
+const handlePaymentSuccess = (updatedInvoice: Invoice) => {
+  // Rafraîchir la liste des factures
+  queryClient.invalidateQueries(["/api/invoices"]);
+  setIsAddPaymentModalOpen(false);
+  toast.success("Paiement enregistré avec succès ✅");
+};
+Rendu de la modal :
+// À la fin du JSX de TrackingPage
+{selectedInvoice && (
+  <AddPaymentModal
+    invoice={selectedInvoice}
+    isOpen={isAddPaymentModalOpen}
+    onClose={() => setIsAddPaymentModalOpen(false)}
+    onSuccess={handlePaymentSuccess}
+  />
+)}
+5. VÉRIFICATION - Modal AddPaymentModal existe-t-elle ?
+Si la modal AddPaymentModal n'existe PAS encore :
+Créer client/src/components/AddPaymentModal.tsx :
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+
+interface AddPaymentModalProps {
+  invoice: any;
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (invoice: any) => void;
+}
+
+export function AddPaymentModal({ invoice, isOpen, onClose, onSuccess }: AddPaymentModalProps) {
+  const [amountPaid, setAmountPaid] = useState("");
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentType, setPaymentType] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
+
+  const totalPaid = invoice.totalPaid || 0;
+  const amountToPay = parseFloat(invoice.amountDisplayTTC || invoice.amountTTC);
+  const remaining = amountToPay - totalPaid;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const amount = parseFloat(amountPaid);
+    
+    // Validations
+    if (isNaN(amount) || amount <= 0) {
+      toast({ title: "Erreur", description: "Le montant doit être supérieur à 0", variant: "destructive" });
+      return;
+    }
+    
+    if (amount > remaining) {
+      toast({ title: "Erreur", description: `Le montant ne peut pas dépasser ${remaining.toLocaleString('fr-FR')} F`, variant: "destructive" });
+      return;
+    }
+    
+    if (!paymentDate || !paymentType) {
+      toast({ title: "Erreur", description: "Tous les champs sont requis", variant: "destructive" });
+      return;
+    }
+
+    setIsSubmitting(true);
+    
+    try {
+      const response = await fetch("/api/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceId: invoice.id,
+          amountPaid: amountPaid,
+          paymentDate: paymentDate,
+          paymentType: paymentType
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Erreur lors de l'enregistrement");
+      }
+
+      const result = await response.json();
+      onSuccess(result.invoice);
+    } catch (error: any) {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Ajouter un paiement</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Facture {invoice.invoiceNumber} - {invoice.supplierName}
+          </p>
+        </DialogHeader>
+
+        <div className="space-y-3 py-4">
+          <div className="space-y-1">
+            <p className="text-sm">Montant TTC : <span className="font-medium">{amountToPay.toLocaleString('fr-FR')} F</span></p>
+            <p className="text-sm">Total déjà payé : <span className="font-medium">{totalPaid.toLocaleString('fr-FR')} F</span></p>
+            <p className="text-sm font-bold text-teal-600">
+              Reste à payer : {remaining.toLocaleString('fr-FR')} F
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="amount">Montant de ce paiement (FCFA) *</Label>
+              <Input
+                id="amount"
+                type="number"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+                placeholder="Ex: 30000"
+                max={remaining}
+                required
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="date">Date du paiement *</Label>
+              <Input
+                id="date"
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="type">Type de règlement *</Label>
+              <Select value={paymentType} onValueChange={setPaymentType} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Wave Business">Wave Business</SelectItem>
+                  <SelectItem value="Espèces">Espèces</SelectItem>
+                  <SelectItem value="Virement">Virement</SelectItem>
+                  <SelectItem value="Mobile Money">Mobile Money</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose}>
+                Annuler
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Enregistrement..." : "Enregistrer"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+Si la modal existe déjà, vérifier qu'elle fonctionne correctement.
+6. TYPES - Interface Invoice
+Mettre à jour l'interface Invoice (client/src/lib/types.ts ou équivalent) :
+export interface Invoice {
+  id: string;
+  userName: string;
+  invoiceDate: string;
+  supplierId: string;
+  category: string;
+  amountTTC: string;
+  amountDisplayTTC?: string;
+  amountRealTTC?: string;
+  invoiceType: "expense" | "supplier_invoice";
+  paymentStatus?: "unpaid" | "partial" | "paid";
+  paymentType: string;
+  totalPaid?: number;          // NOUVEAU
+  remainingAmount?: number;    // NOUVEAU
+  // ... autres champs
+}
+ORDRE D'IMPLÉMENTATION
+Backend - Route GET /api/invoices
+Modifier la requête SQL pour JOIN payments
+Calculer totalPaid et remainingAmount
+Tester avec Postman/Thunder Client
+Frontend - Types
+Ajouter totalPaid et remainingAmount à l'interface Invoice
+Frontend - TrackingPage badges
+Modifier l'affichage de la colonne "Paiement"
+Tester les 3 états (paid/partial/unpaid)
+Frontend - Bouton "Ajouter un paiement"
+Ajouter le bouton dans la colonne Actions
+Créer le handler handleAddPayment
+Frontend - Modal AddPaymentModal
+Vérifier si existe, sinon créer
+Tester l'ouverture/fermeture
+Tester la soumission
+Tests complets
+Voir checklist ci-dessous
+POINTS D'ATTENTION
+Conversion des montants (VARCHAR → NUMERIC)
+Les montants sont stockés en VARCHAR en BDD
+TOUJOURS utiliser CAST AS NUMERIC dans les calculs SQL
+Utiliser parseFloat() en JavaScript
+LEFT JOIN obligatoire
+Ne pas utiliser INNER JOIN (exclurait les factures sans paiements)
+COALESCE pour gérer les NULL (factures sans paiements)
+Gestion des dépenses
+Les dépenses ne doivent PAS afficher le badge de statut
+Continuer à afficher le type de règlement pour les dépenses
+Pas de bouton "Ajouter un paiement" pour les dépenses
+Permissions utilisateur
+Vérifier userName (pas createdBy) pour les permissions
+Seul le créateur peut ajouter un paiement
+Responsive mobile
+Le bouton "Ajouter un paiement" doit être adapté aux petits écrans
+Possiblement utiliser seulement l'icône sur mobile
+Performance
+Le LEFT JOIN peut être lourd avec beaucoup de factures
+Vérifier les temps de réponse
+Ajouter pagination si nécessaire
+Format des nombres
+Utiliser toLocaleString('fr-FR') pour les montants (séparateurs de milliers)
+Afficher toujours "F" ou "FCFA" après le montant
+FICHIERS À MODIFIER
+Backend :
+server/routes.ts (route GET /api/invoices)
+Frontend :
+client/src/pages/Tracking.tsx ou TrackingPage.tsx (badges + bouton)
+client/src/components/AddPaymentModal.tsx (créer si n'existe pas)
+client/src/lib/types.ts (interface Invoice)
+EXEMPLES DE CODE SQL POUR TESTS
+Tester le calcul des paiements :
+-- Voir une facture avec ses paiements
+SELECT 
+  i.id,
+  i.invoice_number,
+  i.amount_ttc,
+  i.payment_status,
+  COALESCE(SUM(CAST(p.amount_paid AS NUMERIC)), 0) as total_paid,
+  CAST(i.amount_ttc AS NUMERIC) - COALESCE(SUM(CAST(p.amount_paid AS NUMERIC)), 0) as remaining
+FROM invoices i
+LEFT JOIN payments p ON i.id = p.invoice_id
+WHERE i.id = '487a6eab-8dbb-4402-9678-68e8b725e226'
+GROUP BY i.id;
+Résultat attendu :
+id                                   | invoice_number | amount_ttc | payment_status | total_paid | remaining
+487a6eab-8dbb-4402-9678-68e8b725e226 | dqgdggd       | 50000.00   | partial        | 20000.00   | 30000.00
+VALIDATION DES CHANGEMENTS
+Test manuel rapide :
+Ouvrir la page "Mes factures"
+Vérifier que la facture 487a6eab... affiche :
+Badge orange : "⚠️ Partiel: 20 000 / 50 000 F"
+Bouton "💳 Ajouter un paiement" visible
+Cliquer sur "Ajouter un paiement"
+Vérifier que la modal s'ouvre avec "Reste à payer : 30 000 F"
+Ajouter un paiement de 15 000 F
+Vérifier que le badge devient "⚠️ Partiel: 35 000 / 50 000 F"
+Ajouter un paiement de 15 000 F (complète à 50k)
+Vérifier que le badge devient "✅ Payé"
+Vérifier que le bouton "Ajouter un paiement" disparaît
+MESSAGES D'ERREUR À GÉRER
+Backend :
+"Invoice not found" → 404
+"User not authorized" → 403
+"Invoice already paid" → 400
+"Amount exceeds remaining" → 400
+Frontend :
+Toast d'erreur si montant invalide
+Toast de succès après ajout paiement
+Message clair dans la modal
+
+---
+
+## ✅ CHECKLIST POST-IMPLÉMENTATION
+
+### Backend
+- [ ] Route GET /api/invoices modifiée avec JOIN payments
+- [ ] Champs `totalPaid` et `remainingAmount` renvoyés dans la réponse
+- [ ] Test API : Appeler GET /api/invoices et vérifier la structure JSON
+- [ ] Factures sans paiements retournent `totalPaid: 0` (pas NULL)
+- [ ] Dépenses n'ont pas `remainingAmount` (ou NULL)
+
+### Frontend - Badges
+- [ ] Badge "✅ Payé" (vert) pour payment_status = "paid"
+- [ ] Badge "⚠️ Partiel: XX / YY F" (orange) pour payment_status = "partial"
+- [ ] Badge "❌ Non payé" (rouge) pour payment_status = "unpaid"
+- [ ] Montants formatés avec séparateurs (20 000 et non 20000)
+- [ ] Dépenses affichent le type de règlement (pas de badge)
+
+### Frontend - Bouton "Ajouter un paiement"
+- [ ] Bouton visible sur factures fournisseur avec statut "partial" ou "unpaid"
+- [ ] Bouton masqué sur factures soldées (status = "paid")
+- [ ] Bouton masqué sur dépenses
+- [ ] Bouton masqué si user != créateur de la facture
+- [ ] Clic sur bouton ouvre la modal AddPaymentModal
+
+### Frontend - Modal AddPayment
+- [ ] Modal s'ouvre correctement
+- [ ] Affichage "Reste à payer" correct (50 000 - 20 000 = 30 000)
+- [ ] Validation : Refus si montant > reste à payer
+- [ ] Validation : Refus si montant <= 0
+- [ ] Validation : Date et type requis
+- [ ] Soumission réussie → Modal se ferme
+- [ ] Toast de succès affiché
+- [ ] Liste des factures se rafraîchit (badge mis à jour)
+
+### Tests scénarios complets
+
+**Scénario 1 : Facture partiellement payée**
+- [ ] Facture 50k avec paiement 20k
+- [ ] Badge affiche "Partiel: 20 000 / 50 000 F"
+- [ ] Bouton "Ajouter un paiement" visible
+- [ ] Clic → Modal s'ouvre avec "Reste : 30 000 F"
+
+**Scénario 2 : Ajouter un paiement intermédiaire**
+- [ ] Ajouter paiement de 15k sur facture ci-dessus
+- [ ] Badge devient "Partiel: 35 000 / 50 000 F"
+- [ ] Bouton toujours visible
+
+**Scénario 3 : Solder une facture**
+- [ ] Ajouter paiement de 15k (complète à 50k)
+- [ ] Badge devient "✅ Payé" (vert)
+- [ ] Bouton "Ajouter un paiement" disparaît
+
+**Scénario 4 : Dépense (hors scope)**
+- [ ] Dépense de 25k
+- [ ] Colonne "Paiement" affiche "Wave Business" (type règlement)
+- [ ] Pas de badge de statut
+- [ ] Pas de bouton "Ajouter un paiement"
+
+**Scénario 5 : Permissions**
+- [ ] Michael crée facture fournisseur
+- [ ] Marine se connecte
+- [ ] Vérifier : Pas de bouton "Ajouter paiement" sur facture de Michael
+
+**Scénario 6 : Validation montant**
+- [ ] Facture 50k, 20k payés, reste 30k
+- [ ] Tenter ajouter paiement de 40k
+- [ ] Vérifier : Erreur "Le montant ne peut pas dépasser 30 000 F"
+
+### Performance
+- [ ] Page "Mes factures" avec 20+ factures : Temps de chargement < 1s
+- [ ] Pas d'erreurs dans la console
+- [ ] Pas de N+1 queries (vérifier logs SQL)
+
+---
+
+## ❓ QUESTIONS DE VALIDATION
+
+1. **La modal AddPaymentModal existe-t-elle déjà** ou faut-il la créer de zéro ?
+
+2. **Les types de règlement disponibles** sont-ils les mêmes pour tous les users ou spécifiques par user ? (Pour la modal)
+
+3. **Format de la date dans le formulaire** : Input date natif ou date picker custom ?
+
+4. **Responsive** : Le bouton "Ajouter un paiement" doit-il afficher juste l'icône sur mobile ?

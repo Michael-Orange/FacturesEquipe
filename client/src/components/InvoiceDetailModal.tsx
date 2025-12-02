@@ -13,10 +13,12 @@ import { Separator } from "@/components/ui/separator";
 import type { InvoiceWithDetails } from "./TrackingTable";
 
 interface Payment {
-  id: string;
+  id: number;
+  invoiceId: string;
   amountPaid: string;
   paymentDate: string;
   paymentType: string;
+  createdBy?: string | null;
   createdAt: string;
 }
 

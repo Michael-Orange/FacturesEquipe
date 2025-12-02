@@ -94,7 +94,7 @@ export function AddPaymentModal({
         title: "Paiement ajouté",
         description: "Le paiement a été enregistré avec succès",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices-with-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoice", invoice?.id, "with-payments"] });
       onOpenChange(false);
       resetForm();

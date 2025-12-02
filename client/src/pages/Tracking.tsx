@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { Loader2, AlertCircle, FileText, ArrowLeft, Download } from "lucide-react";
-import { TrackingTable, type InvoiceWithDetails } from "@/components/TrackingTable";
+import { TrackingTable, type InvoiceWithDetails, type Payment } from "@/components/TrackingTable";
 import { TrackingFilters, type InvoiceFilters } from "@/components/TrackingFilters";
 import { InvoiceDetailModal } from "@/components/InvoiceDetailModal";
 import { AddPaymentModal } from "@/components/AddPaymentModal";
@@ -11,14 +11,6 @@ import { Button } from "@/components/ui/button";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Category, UserToken } from "@shared/schema";
-
-interface Payment {
-  id: string;
-  amountPaid: string;
-  paymentDate: string;
-  paymentType: string;
-  createdAt: string;
-}
 
 interface InvoiceWithPayments extends InvoiceWithDetails {
   payments?: Payment[];
@@ -74,11 +66,11 @@ export default function Tracking() {
 
   const queryParams = buildQueryParams();
   const invoicesQueryKey = queryParams 
-    ? `/api/invoices/${userData?.name}?${queryParams}`
-    : `/api/invoices/${userData?.name}`;
+    ? `/api/invoices-with-payments/${userData?.name}?${queryParams}`
+    : `/api/invoices-with-payments/${userData?.name}`;
 
   const { data: invoices = [], isLoading: invoicesLoading } = useQuery<InvoiceWithDetails[]>({
-    queryKey: ["/api/invoices", userData?.name, filters],
+    queryKey: ["/api/invoices-with-payments", userData?.name, filters],
     queryFn: async () => {
       const response = await fetch(invoicesQueryKey);
       if (!response.ok) throw new Error("Failed to fetch invoices");
@@ -137,7 +129,7 @@ export default function Tracking() {
       await apiRequest("DELETE", `/api/invoices/${invoiceId}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices", userData?.name] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices-with-payments", userData?.name, filters] });
       toast({
         title: "Facture supprimée",
         description: "La facture a été supprimée avec succès",
