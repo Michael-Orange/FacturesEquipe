@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, decimal, boolean, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, decimal, boolean, serial, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -96,7 +96,9 @@ export const payments = pgTable("payments", {
   paymentType: varchar("payment_type", { length: 100 }).notNull(),
   createdBy: varchar("created_by").references(() => userTokens.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  invoiceIdIdx: index("payments_invoice_id_idx").on(table.invoiceId),
+}));
 
 // Insert schemas
 export const insertUserTokenSchema = createInsertSchema(userTokens).omit({
