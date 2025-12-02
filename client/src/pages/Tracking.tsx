@@ -5,11 +5,24 @@ import { Loader2, AlertCircle, FileText, ArrowLeft, Download } from "lucide-reac
 import { TrackingTable, type InvoiceWithDetails } from "@/components/TrackingTable";
 import { TrackingFilters, type InvoiceFilters } from "@/components/TrackingFilters";
 import { InvoiceDetailModal } from "@/components/InvoiceDetailModal";
+import { AddPaymentModal } from "@/components/AddPaymentModal";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Category, UserToken } from "@shared/schema";
+
+interface Payment {
+  id: string;
+  amountPaid: string;
+  paymentDate: string;
+  paymentType: string;
+  createdAt: string;
+}
+
+interface InvoiceWithPayments extends InvoiceWithDetails {
+  payments?: Payment[];
+}
 
 export default function Tracking() {
   const [, params] = useRoute("/tracking/:userToken");
@@ -32,6 +45,8 @@ export default function Tracking() {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithDetails | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [loadingDownload, setLoadingDownload] = useState(false);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [invoiceForPayment, setInvoiceForPayment] = useState<InvoiceWithDetails | null>(null);
 
   const { data: userData, isLoading: userLoading, error: userError } = useQuery<UserToken>({
     queryKey: ["/api/validate-token", token],
@@ -71,6 +86,21 @@ export default function Tracking() {
     },
     enabled: !!userData,
   });
+
+  const { data: invoiceWithPayments } = useQuery<InvoiceWithPayments>({
+    queryKey: ["/api/invoice", selectedInvoice?.id, "with-payments"],
+    queryFn: async () => {
+      const response = await fetch(`/api/invoice/${selectedInvoice?.id}/with-payments`);
+      if (!response.ok) throw new Error("Failed to fetch invoice details");
+      return response.json();
+    },
+    enabled: !!selectedInvoice?.id && detailModalOpen && selectedInvoice?.invoiceType === "supplier_invoice",
+  });
+
+  const handleAddPayment = (invoice: InvoiceWithDetails) => {
+    setInvoiceForPayment(invoice);
+    setPaymentModalOpen(true);
+  };
 
   const downloadInvoiceMutation = useMutation({
     mutationFn: async (invoice: InvoiceWithDetails) => {
@@ -270,7 +300,23 @@ export default function Tracking() {
         onDownload={handleModalDownload}
         onEdit={(invoiceId) => setLocation(`/edit/${invoiceId}/${userToken}`)}
         onDelete={handleModalDelete}
+        onAddPayment={handleAddPayment}
         loadingDownload={loadingDownload}
+        payments={invoiceWithPayments?.payments || []}
+      />
+
+      <AddPaymentModal
+        invoice={invoiceForPayment}
+        open={paymentModalOpen}
+        onOpenChange={(open) => {
+          setPaymentModalOpen(open);
+          if (!open) {
+            setInvoiceForPayment(null);
+            queryClient.invalidateQueries({ queryKey: ["/api/invoice", selectedInvoice?.id, "with-payments"] });
+          }
+        }}
+        userName={userData?.name || ""}
+        userToken={token || ""}
       />
     </div>
   );

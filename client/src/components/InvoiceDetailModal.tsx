@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Download, Pencil, Trash2, X, Package, Receipt, Info } from "lucide-react";
+import { Download, Pencil, Trash2, X, Package, Receipt, Info, Plus, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type { InvoiceWithDetails } from "./TrackingTable";
 
+interface Payment {
+  id: string;
+  amountPaid: string;
+  paymentDate: string;
+  paymentType: string;
+  createdAt: string;
+}
+
 interface InvoiceDetailModalProps {
   invoice: InvoiceWithDetails | null;
   open: boolean;
@@ -19,7 +27,9 @@ interface InvoiceDetailModalProps {
   onDownload: (invoice: InvoiceWithDetails) => Promise<void>;
   onEdit: (invoiceId: string) => void;
   onDelete: (invoiceId: string) => void;
+  onAddPayment?: (invoice: InvoiceWithDetails) => void;
   loadingDownload?: boolean;
+  payments?: Payment[];
 }
 
 export function InvoiceDetailModal({
@@ -29,9 +39,14 @@ export function InvoiceDetailModal({
   onDownload,
   onEdit,
   onDelete,
+  onAddPayment,
   loadingDownload = false,
+  payments = [],
 }: InvoiceDetailModalProps) {
   if (!invoice) return null;
+
+  const isSupplierInvoice = invoice.invoiceType === "supplier_invoice";
+  const canAddPayment = isSupplierInvoice && invoice.paymentStatus !== "paid";
 
   const formatAmount = (amount: string | number | null | undefined) => {
     if (!amount) return "-";
@@ -101,6 +116,21 @@ export function InvoiceDetailModal({
                 <Badge variant="outline" className="bg-purple-50 border-purple-300 text-purple-700">
                   <Receipt className="h-3 w-3 mr-1" />
                   BRS
+                </Badge>
+              )}
+              {isSupplierInvoice && invoice.paymentStatus === "paid" && (
+                <Badge variant="outline" className="bg-green-50 border-green-300 text-green-700">
+                  Soldé
+                </Badge>
+              )}
+              {isSupplierInvoice && invoice.paymentStatus === "partial" && (
+                <Badge variant="outline" className="bg-orange-50 border-orange-300 text-orange-700">
+                  Partiel
+                </Badge>
+              )}
+              {isSupplierInvoice && invoice.paymentStatus === "unpaid" && (
+                <Badge variant="outline" className="bg-red-50 border-red-300 text-red-700">
+                  Non payé
                 </Badge>
               )}
             </div>
@@ -190,6 +220,86 @@ export function InvoiceDetailModal({
                   </div>
                 </div>
               </div>
+            )}
+
+            {isSupplierInvoice && (
+              <>
+                <Separator />
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <CreditCard className="h-3 w-3" />
+                      Paiements
+                    </p>
+                    {canAddPayment && onAddPayment && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onAddPayment(invoice)}
+                        data-testid="button-add-payment"
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Ajouter
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span>Montant total</span>
+                      <span className="font-medium">
+                        {formatAmount(invoice.amountDisplayTTC)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span>Total payé</span>
+                      <span className="font-medium text-green-600">
+                        {formatAmount(invoice.totalPaid || 0)}
+                      </span>
+                    </div>
+                    {invoice.remainingAmount && parseFloat(String(invoice.remainingAmount)) > 0 && (
+                      <div className="flex justify-between items-center text-sm border-t pt-2">
+                        <span className="font-medium">Reste à payer</span>
+                        <span className="font-bold text-orange-600">
+                          {formatAmount(invoice.remainingAmount)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {payments.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs text-muted-foreground">Historique</p>
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {payments.map((payment, index) => (
+                          <div
+                            key={payment.id}
+                            className="flex justify-between items-center bg-muted/30 rounded p-2 text-sm"
+                            data-testid={`payment-row-${index}`}
+                          >
+                            <div>
+                              <span className="text-muted-foreground">
+                                {format(new Date(payment.paymentDate), "dd/MM/yyyy")}
+                              </span>
+                              <span className="mx-2">•</span>
+                              <span className="text-xs">{payment.paymentType}</span>
+                            </div>
+                            <span className="font-medium text-green-600">
+                              {formatAmount(payment.amountPaid)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {payments.length === 0 && invoice.paymentStatus === "unpaid" && (
+                    <p className="text-sm text-muted-foreground text-center py-2 mt-2">
+                      Aucun paiement enregistré
+                    </p>
+                  )}
+                </div>
+              </>
             )}
 
             <Separator />
