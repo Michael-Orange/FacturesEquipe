@@ -1118,21 +1118,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper function to generate Zoho CSV for expenses
   function generateZohoExpenseCSV(expenseData: any[]): string {
-    // Headers exactly as in Zoho Books import template (27 columns)
-    const csvHeader = "Entry Number,Expense Date,Expense Account,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,Branch Name,Employee Email,CF.company,Project Name\n";
+    // Headers exactly as in Zoho Books import template (28 columns - added Expense Account Name)
+    const csvHeader = "Entry Number,Expense Date,Expense Account,Expense Account Name,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,Branch Name,Employee Email,CF.company,Project Name\n";
     
     const csvRows = expenseData.map((exp, index) => {
       const entryNumber = index + 1;
       const expenseDate = format(new Date(exp.invoiceDate), "yyyy-MM-dd");
       
-      // Expense Account from categories.account_name
-      const expenseAccount = exp.categoryAccountName || "";
+      // Expense Account from categories.account_code (numeric code)
+      const expenseAccount = exp.categoryAccountCode || "";
+      // Expense Account Name from categories.account_name (descriptive)
+      const expenseAccountName = exp.categoryAccountName || "";
       
       // Paid Through from payment_methods_mapping.zoho_name (with fallback)
       const paidThrough = exp.paymentZohoName || exp.paymentType;
       if (!exp.paymentZohoName && exp.paymentType) {
         console.warn(`Mode paiement non mappé : ${exp.paymentType}`);
       }
+      
+      // Vendor in Title Case
+      const vendor = toTitleCase(exp.supplierName || "");
       
       // Expense Amount: use amount_real_ttc for Zoho
       const expenseAmount = parseFloat(exp.amountRealTTC || exp.amountDisplayTTC).toFixed(2);
@@ -1159,9 +1164,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return [
         entryNumber,                          // Entry Number
         expenseDate,                          // Expense Date
-        escapeCSV(expenseAccount),            // Expense Account
+        escapeCSV(expenseAccount),            // Expense Account (code)
+        escapeCSV(expenseAccountName),        // Expense Account Name (descriptive)
         escapeCSV(paidThrough),               // Paid Through
-        escapeCSV(exp.supplierName),          // Vendor
+        escapeCSV(vendor),                    // Vendor (Title Case)
         escapeCSV(exp.description),           // Expense Description
         "XOF",                                // Currency Code
         "1",                                  // Exchange Rate
@@ -1235,6 +1241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           projectName: projects.name,
           categoryId: invoices.categoryId,
           categoryAccountName: categories.accountName,
+          categoryAccountCode: categories.accountCode,
           paymentZohoName: paymentMethodsMapping.zohoName,
         })
         .from(invoices)
