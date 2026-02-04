@@ -1,0 +1,270 @@
+# ADMIN - VUE CONSOLIDÉE DES FACTURES
+
+## CONTEXTE
+L'admin dispose actuellement d'exports CSV/Zoho mais pas de vue détaillée des factures. Pour faciliter le contrôle et détecter les erreurs, on ajoute un tableau consolidé affichant toutes les factures des 3 users (Michael, Marine, Fatou).
+
+## OBJECTIF
+Créer une section "Vue Consolidée" dans l'admin avec un tableau identique à la vue utilisateur (page Tracking), regroupant toutes les factures des 2 derniers mois.
+
+## SPÉCIFICATIONS FONCTIONNELLES
+
+### 1. STRUCTURE DU TABLEAU
+
+**Colonnes à afficher (dans cet ordre) :**
+1. **User** - Nom du user (Michael/Marine/Fatou) - NOUVELLE COLONNE
+2. **Date** - Date de la facture
+3. **Type** - Dépense ou Facture fournisseur
+4. **Fournisseur** - Nom du fournisseur
+5. **Catégorie** - Catégorie de dépense
+6. **Montant TTC** - Montant TTC
+7. **Montant HT** - Montant HT (si applicable)
+8. **N° Facture** - Numéro de facture généré (ex: DEP-MI-2602-001)
+9. **Paiement** - Mode de paiement
+10. **Indicateurs** - Badges/statuts visuels (payé, en attente, etc.)
+11. **Actions** - Voir détail + Télécharger facture (icônes)
+
+### 2. FILTRAGE ET TRI
+
+**Filtrage automatique :**
+- Par défaut : **2 derniers mois** uniquement
+- Ordre : **Date décroissante** (plus récent en haut)
+
+**Filtres utilisateur (en haut du tableau) :**
+- **User** : Dropdown [Tous / Michael / Marine / Fatou]
+- **Type** : Dropdown [Tous / Dépense / Facture fournisseur]
+- **Période** : Date picker (début + fin) pour personnaliser la période
+
+### 3. ACTIONS DISPONIBLES
+
+**Colonne Actions (icônes uniquement) :**
+- 👁️ **Voir** : Ouvre modal/page avec détails complets de la facture
+- ⬇️ **Télécharger** : Télécharge le fichier PDF/image de la facture
+
+**PAS d'édition ni de suppression** depuis l'admin.
+
+### 4. DESIGN ET UX
+
+**Style :**
+- Reprendre le design exact de la vue utilisateur (page Tracking)
+- Tableau responsive avec scroll horizontal si besoin
+- Couleurs cohérentes (vert pour header, badges pour catégories)
+- Colonne "User" distincte visuellement (badge avec initiales ou couleur par user)
+
+**Position dans l'admin :**
+- Nouvelle section en haut de l'admin, AVANT les boutons d'export
+- Titre : "📊 Vue Consolidée - Factures des 2 derniers mois"
+
+## MODIFICATIONS TECHNIQUES
+
+### 1. BACKEND - Nouvel endpoint API
+
+**Fichier :** `server/routes.ts`
+
+**Endpoint à créer :**
+```typescript
+app.get("/api/admin/invoices/consolidated", async (req, res) => {
+  // Vérifier authentification admin
+  
+  // Paramètres de requête
+  const { userId, type, startDate, endDate } = req.query;
+  
+  // Par défaut : 2 derniers mois
+  const twoMonthsAgo = new Date();
+  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+  
+  const start = startDate ? new Date(startDate) : twoMonthsAgo;
+  const end = endDate ? new Date(endDate) : new Date();
+  
+  // Requête SQL
+  const query = db
+    .select({
+      id: invoices.id,
+      date: invoices.date,
+      type: invoices.type,
+      vendorName: vendors.name,
+      categoryName: categories.appName,
+      amountTTC: invoices.amountTtc,
+      amountHT: invoices.amountHt,
+      invoiceNumber: invoices.invoiceNumber,
+      paymentType: invoices.paymentType,
+      paymentStatus: invoices.paymentStatus,
+      userName: users.name,
+      userId: invoices.userId,
+      fileUrl: invoices.fileUrl,
+      // autres champs nécessaires
+    })
+    .from(invoices)
+    .leftJoin(vendors, eq(invoices.vendorId, vendors.id))
+    .leftJoin(categories, eq(invoices.categoryId, categories.id))
+    .leftJoin(users, eq(invoices.userId, users.id))
+    .where(
+      and(
+        gte(invoices.date, start),
+        lte(invoices.date, end),
+        userId ? eq(invoices.userId, parseInt(userId)) : undefined,
+        type ? eq(invoices.type, type) : undefined
+      )
+    )
+    .orderBy(desc(invoices.date));
+  
+  const result = await query;
+  
+  res.json(result);
+});
+2. FRONTEND - Nouveau composant
+Fichier à créer : client/src/components/AdminConsolidatedView.tsx
+Structure du composant :
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+
+interface ConsolidatedInvoice {
+  id: number;
+  date: string;
+  type: string;
+  vendorName: string;
+  categoryName: string;
+  amountTTC: number;
+  amountHT?: number;
+  invoiceNumber: string;
+  paymentType: string;
+  paymentStatus: string;
+  userName: string;
+  userId: number;
+  fileUrl?: string;
+}
+
+export default function AdminConsolidatedView() {
+  const [filters, setFilters] = useState({
+    userId: null,
+    type: null,
+    startDate: null,
+    endDate: null,
+  });
+
+  const { data: invoices, isLoading } = useQuery({
+    queryKey: ["/api/admin/invoices/consolidated", filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.userId) params.append("userId", filters.userId);
+      if (filters.type) params.append("type", filters.type);
+      if (filters.startDate) params.append("startDate", filters.startDate);
+      if (filters.endDate) params.append("endDate", filters.endDate);
+      
+      const res = await fetch(`/api/admin/invoices/consolidated?${params}`);
+      return res.json();
+    },
+  });
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-2xl font-bold mb-4">
+        📊 Vue Consolidée - Factures des 2 derniers mois
+      </h2>
+      
+      {/* Filtres */}
+      <div className="flex gap-4 mb-4">
+        <select onChange={(e) => setFilters({...filters, userId: e.target.value})}>
+          <option value="">Tous les users</option>
+          <option value="1">Michael</option>
+          <option value="2">Marine</option>
+          <option value="3">Fatou</option>
+        </select>
+        
+        <select onChange={(e) => setFilters({...filters, type: e.target.value})}>
+          <option value="">Tous les types</option>
+          <option value="expense">Dépense</option>
+          <option value="supplier_invoice">Facture fournisseur</option>
+        </select>
+        
+        <input 
+          type="date" 
+          onChange={(e) => setFilters({...filters, startDate: e.target.value})}
+        />
+        <input 
+          type="date" 
+          onChange={(e) => setFilters({...filters, endDate: e.target.value})}
+        />
+      </div>
+      
+      {/* Tableau */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead className="bg-teal-600 text-white">
+            <tr>
+              <th>User</th>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Fournisseur</th>
+              <th>Catégorie</th>
+              <th>Montant TTC</th>
+              <th>Montant HT</th>
+              <th>N° Facture</th>
+              <th>Paiement</th>
+              <th>Indicateurs</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices?.map((invoice) => (
+              <tr key={invoice.id}>
+                <td>
+                  <span className="badge">{invoice.userName}</span>
+                </td>
+                <td>{new Date(invoice.date).toLocaleDateString()}</td>
+                <td>{invoice.type}</td>
+                <td>{invoice.vendorName}</td>
+                <td><span className="badge">{invoice.categoryName}</span></td>
+                <td>{invoice.amountTTC.toLocaleString()} FCFA</td>
+                <td>{invoice.amountHT ? `${invoice.amountHT.toLocaleString()} FCFA` : "-"}</td>
+                <td>{invoice.invoiceNumber}</td>
+                <td>{invoice.paymentType}</td>
+                <td>
+                  {/* Badges statut paiement */}
+                </td>
+                <td>
+                  <button onClick={() => viewInvoice(invoice.id)}>👁️</button>
+                  <button onClick={() => downloadInvoice(invoice.fileUrl)}>⬇️</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+3. INTÉGRATION DANS L'ADMIN
+Fichier : client/src/components/AdminDashboard.tsx (ou Admin.tsx)
+Ajouter en haut du composant :
+import AdminConsolidatedView from "./AdminConsolidatedView";
+
+// Dans le return
+<div>
+  <AdminConsolidatedView />  {/* NOUVELLE SECTION */}
+  
+  {/* Exports existants en dessous */}
+  <div className="mt-8">
+    <h2>Exports</h2>
+    {/* Boutons d'export actuels */}
+  </div>
+</div>
+RÉSULTAT ATTENDU
+Vue Admin - Avant
+[Login Admin]
+[Export CSV Global]
+[Export Axonaut]
+[Export Zoho Expenses]
+...
+Vue Admin - Après
+[Login Admin]
+
+📊 Vue Consolidée - Factures des 2 derniers mois
+[Filtres: User | Type | Dates]
+[Tableau avec toutes les factures]
+
+[Séparateur]
+
+📤 Exports
+[Export CSV Global]
+[Export Axonaut]
+...
