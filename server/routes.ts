@@ -1118,8 +1118,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper function to generate Zoho CSV for expenses
   function generateZohoExpenseCSV(expenseData: any[]): string {
-    // Headers exactly as in Zoho Books import template (28 columns - added Expense Account Name)
-    const csvHeader = "Entry Number,Expense Date,Expense Account,Expense Account Name,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,Branch Name,Employee Email,CF.company,Project Name\n";
+    // Headers exactly as in Zoho Books import template (29 columns - added Expense Account Name + Tags)
+    const csvHeader = "Entry Number,Expense Date,Expense Account,Expense Account Name,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,Branch Name,Employee Email,CF.company,Project Name,Tags\n";
     
     const csvRows = expenseData.map((exp, index) => {
       const entryNumber = index + 1;
@@ -1150,8 +1150,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Reference# = invoice_number (DEP-XX-YYMM-XXX)
       const reference = exp.invoiceNumber || "";
       
-      // Project Name
-      const projectName = exp.projectName || "";
+      // Project Name and Tags logic: MPP, RD, Structure go to Tags instead of Project Name
+      const projectValue = exp.projectName || "";
+      let projectName = "";
+      let tags = "";
+      
+      if (projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure") {
+        tags = projectValue;  // Va dans Tags
+        projectName = "";     // Project Name reste vide
+      } else {
+        projectName = projectValue;  // Va dans Project Name
+        tags = "";                    // Tags reste vide
+      }
       
       // Escape function for CSV values with commas
       const escapeCSV = (val: string) => {
@@ -1190,6 +1200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "",                                   // Employee Email
         "",                                   // CF.company
         escapeCSV(projectName),               // Project Name
+        escapeCSV(tags),                      // Tags (MPP, RD, Structure)
       ].join(",");
     });
 
@@ -1276,8 +1287,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper function to generate Zoho CSV for supplier invoices (Bills format - 29 columns)
   function generateZohoBillsCSV(billsData: any[]): string {
-    // Headers exactly as in Zoho Books Bills import template (30 columns - added Account Name)
-    const csvHeader = "Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Account Name,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name\n";
+    // Headers exactly as in Zoho Books Bills import template (31 columns - added Account Name + Tags)
+    const csvHeader = "Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Account Name,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Tags,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name\n";
     
     const csvRows = billsData.map((bill) => {
       const billDate = format(new Date(bill.invoiceDate), "yyyy-MM-dd");
@@ -1299,8 +1310,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isInclusiveTax = bill.vatApplicable ? "TRUE" : "";
       const taxType = bill.vatApplicable ? "ItemAmount" : "";
       
-      // Project Name
-      const projectName = bill.projectName || "";
+      // Project Name and Tags logic: MPP, RD, Structure go to Tags instead of Project Name
+      const projectValue = bill.projectName || "";
+      let projectName = "";
+      let tags = "";
+      
+      if (projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure") {
+        tags = projectValue;  // Va dans Tags
+        projectName = "";     // Project Name reste vide
+      } else {
+        projectName = projectValue;  // Va dans Project Name
+        tags = "";                    // Tags reste vide
+      }
       
       // Escape function for CSV values with commas
       const escapeCSV = (val: string) => {
@@ -1332,6 +1353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "",                                   // Terms & Conditions
         "",                                   // Customer Name
         escapeCSV(projectName),               // Project Name
+        escapeCSV(tags),                      // Tags (MPP, RD, Structure)
         "goods",                              // Item Type
         "0",                                  // Adjustment
         "",                                   // Purchase Order Number
