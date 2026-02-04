@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Download, Archive, Lock, Database, Calendar, FileText } from "lucide-react";
+import { AdminConsolidatedView } from "./AdminConsolidatedView";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -386,7 +387,7 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-primary">Administration</h1>
@@ -401,6 +402,8 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
           Déconnexion
         </Button>
       </div>
+
+      <AdminConsolidatedView />
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="hover-elevate">

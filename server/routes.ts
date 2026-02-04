@@ -938,6 +938,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   };
 
+  // Admin consolidated invoices view (protected) - for admin dashboard table
+  app.get("/api/admin/invoices/consolidated", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const { user, type, date_start, date_end } = req.query;
+      
+      // Default: last 2 months
+      const twoMonthsAgo = new Date();
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      twoMonthsAgo.setHours(0, 0, 0, 0);
+      
+      const startDate = date_start ? new Date(String(date_start)) : twoMonthsAgo;
+      const endDate = date_end ? new Date(String(date_end)) : new Date();
+      endDate.setHours(23, 59, 59, 999);
+      
+      // Build WHERE conditions - exclude archived
+      const conditions: any[] = [
+        isNull(invoices.archive),
+        gte(invoices.invoiceDate, startDate),
+        lte(invoices.invoiceDate, endDate),
+      ];
+      
+      // Filter by user if specified
+      if (user && user !== "all") {
+        const userName = String(user).charAt(0).toUpperCase() + String(user).slice(1).toLowerCase();
+        conditions.push(eq(invoices.userName, userName));
+      }
+      
+      // Filter by type if specified
+      if (type && type !== "all") {
+        conditions.push(eq(invoices.invoiceType, String(type)));
+      }
+      
+      // Query with all necessary joins
+      const result = await db
+        .select({
+          id: invoices.id,
+          userName: invoices.userName,
+          invoiceDate: invoices.invoiceDate,
+          supplierId: invoices.supplierId,
+          supplierName: suppliers.name,
+          supplierIsRegular: suppliers.isRegularSupplier,
+          category: invoices.category,
+          amountDisplayTTC: invoices.amountDisplayTTC,
+          amountHT: invoices.amountHT,
+          amountRealTTC: invoices.amountRealTTC,
+          vatApplicable: invoices.vatApplicable,
+          description: invoices.description,
+          paymentType: invoices.paymentType,
+          invoiceNumber: invoices.invoiceNumber,
+          invoiceType: invoices.invoiceType,
+          isStockPurchase: invoices.isStockPurchase,
+          hasBrs: invoices.hasBrs,
+          paymentStatus: invoices.paymentStatus,
+          projectId: invoices.projectId,
+          projectName: projects.name,
+          projectNumber: projects.number,
+          categoryId: invoices.categoryId,
+          categoryAppName: categories.appName,
+          categoryAccountName: categories.accountName,
+          categoryAccountCode: categories.accountCode,
+          fileName: invoices.fileName,
+          driveFileId: invoices.driveFileId,
+          createdAt: invoices.createdAt,
+        })
+        .from(invoices)
+        .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
+        .leftJoin(projects, eq(invoices.projectId, projects.id))
+        .leftJoin(categories, eq(invoices.categoryId, categories.id))
+        .where(and(...conditions))
+        .orderBy(desc(invoices.invoiceDate));
+      
+      // Fetch payments for supplier invoices
+      const invoiceIds = result.map(inv => inv.id);
+      let paymentsMap: Map<string, any[]> = new Map();
+      
+      if (invoiceIds.length > 0) {
+        const allPayments = await db
+          .select()
+          .from(payments)
+          .where(sql`${payments.invoiceId} = ANY(${sql.raw(`ARRAY[${invoiceIds.map(id => `'${id}'`).join(',')}]::varchar[]`)})`);
+        
+        allPayments.forEach((p) => {
+          const existing = paymentsMap.get(p.invoiceId) || [];
+          existing.push(p);
+          paymentsMap.set(p.invoiceId, existing);
+        });
+      }
+      
+      // Enrich result with payment info
+      const enrichedResult = result.map(inv => {
+        const invPayments = paymentsMap.get(inv.id) || [];
+        const totalPaid = invPayments.reduce((sum, p) => sum + parseFloat(p.amountPaid || "0"), 0);
+        const invoiceAmount = parseFloat(inv.amountDisplayTTC || "0");
+        const remainingAmount = Math.max(0, invoiceAmount - totalPaid);
+        
+        return {
+          ...inv,
+          payments: invPayments,
+          totalPaid,
+          remainingAmount,
+        };
+      });
+      
+      res.json(enrichedResult);
+    } catch (error) {
+      console.error("Error fetching consolidated invoices:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Admin export CSV (protected) - includes archived invoices
   app.get("/api/admin/export-csv", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
