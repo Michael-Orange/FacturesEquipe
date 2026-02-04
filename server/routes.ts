@@ -1406,10 +1406,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ZOHO EXPORTS - Factures Fournisseurs (Bills)
   // ============================================
 
-  // Helper function to generate Zoho CSV for supplier invoices (Bills format - 29 columns)
+  // Helper function to generate Zoho CSV for supplier invoices (Bills format - 33 columns with TDS)
   function generateZohoBillsCSV(billsData: any[]): string {
-    // Headers exactly as in Zoho Books Bills import template (31 columns - added Account Name + Tags)
-    const csvHeader = "Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Account Name,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Tags,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name\n";
+    // Headers exactly as in Zoho Books Bills import template (33 columns - added TDS_Name, TDS_Percentage)
+    const csvHeader = "Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Account Name,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,TDS_Name,TDS_Percentage,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Tags,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name\n";
     
     const csvRows = billsData.map((bill) => {
       const billDate = format(new Date(bill.invoiceDate), "yyyy-MM-dd");
@@ -1422,14 +1422,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Vendor in Title Case
       const vendorName = toTitleCase(bill.supplierName || "");
       
-      // Rate: use amount_real_ttc for Zoho
-      const rate = parseFloat(bill.amountRealTTC || bill.amountDisplayTTC).toFixed(2);
+      // Rate logic:
+      // - If BRS: use amountRealTTC (brut = net/0.95, Zoho calculates the 5% deduction)
+      // - Else: use amountDisplayTTC (what user entered)
+      const rate = bill.hasBrs 
+        ? parseFloat(bill.amountRealTTC || bill.amountDisplayTTC).toFixed(2)
+        : parseFloat(bill.amountDisplayTTC).toFixed(2);
       
-      // Tax fields: only if VAT applicable
-      const taxName = bill.vatApplicable ? "TVA" : "";
+      // Tax fields: only if VAT applicable (Zoho calculates from TTC)
+      const taxName = bill.vatApplicable ? "TVA 18%" : "";
       const taxPercentage = bill.vatApplicable ? "18" : "";
       const isInclusiveTax = bill.vatApplicable ? "TRUE" : "";
       const taxType = bill.vatApplicable ? "ItemAmount" : "";
+      
+      // TDS fields: only if BRS applicable (Zoho calculates the 5% deduction)
+      const tdsName = bill.hasBrs ? "BRS" : "";
+      const tdsPercentage = bill.hasBrs ? "5" : "";
       
       // Project Name and Tags logic: MPP, RD, Structure go to Tags instead of Project Name
       const projectValue = bill.projectName || "";
@@ -1470,6 +1478,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taxPercentage,                        // Tax Percentage
         isInclusiveTax,                       // Is Inclusive Tax
         taxType,                              // Tax Type
+        tdsName,                              // TDS_Name (BRS if applicable)
+        tdsPercentage,                        // TDS_Percentage (5 if BRS)
         "",                                   // Vendor Notes
         "",                                   // Terms & Conditions
         "",                                   // Customer Name
@@ -1528,6 +1538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amountDisplayTTC: invoices.amountDisplayTTC,
           amountRealTTC: invoices.amountRealTTC,
           vatApplicable: invoices.vatApplicable,
+          hasBrs: invoices.hasBrs,
           description: invoices.description,
           invoiceNumber: invoices.invoiceNumber,
           projectId: invoices.projectId,
