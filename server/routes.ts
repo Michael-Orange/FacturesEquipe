@@ -1276,14 +1276,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper function to generate Zoho CSV for supplier invoices (Bills format - 29 columns)
   function generateZohoBillsCSV(billsData: any[]): string {
-    // Headers exactly as in Zoho Books Bills import template (29 columns)
-    const csvHeader = "Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name\n";
+    // Headers exactly as in Zoho Books Bills import template (30 columns - added Account Name)
+    const csvHeader = "Bill Date,Bill Number,PurchaseOrder,Bill Status,Vendor Name,Due Date,Currency Code,Exchange Rate,Account,Account Name,Description,Quantity,Rate,Tax Name,Tax Percentage,Is Inclusive Tax,Tax Type,Vendor Notes,Terms & Conditions,Customer Name,Project Name,Item Type,Adjustment,Purchase Order Number,Is Discount Before Tax,Entity Discount Amount,Discount Account,Is Landed Cost,Warehouse Name,Branch Name\n";
     
     const csvRows = billsData.map((bill) => {
       const billDate = format(new Date(bill.invoiceDate), "yyyy-MM-dd");
       
-      // Account from categories.account_name
-      const account = bill.categoryAccountName || "";
+      // Account from categories.account_code (numeric code)
+      const account = bill.categoryAccountCode || "";
+      // Account Name from categories.account_name (descriptive)
+      const accountName = bill.categoryAccountName || "";
+      
+      // Vendor in Title Case
+      const vendorName = toTitleCase(bill.supplierName || "");
       
       // Rate: use amount_real_ttc for Zoho
       const rate = parseFloat(bill.amountRealTTC || bill.amountDisplayTTC).toFixed(2);
@@ -1310,11 +1315,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         escapeCSV(bill.invoiceNumber || ""),  // Bill Number
         "",                                   // PurchaseOrder
         "Open",                               // Bill Status
-        escapeCSV(bill.supplierName),         // Vendor Name
+        escapeCSV(vendorName),                // Vendor Name (Title Case)
         billDate,                             // Due Date (same as Bill Date)
         "XOF",                                // Currency Code
         "1",                                  // Exchange Rate
-        escapeCSV(account),                   // Account
+        escapeCSV(account),                   // Account (code)
+        escapeCSV(accountName),               // Account Name (descriptive)
         escapeCSV(bill.description),          // Description
         "1",                                  // Quantity
         rate,                                 // Rate
@@ -1385,6 +1391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           projectName: projects.name,
           categoryId: invoices.categoryId,
           categoryAccountName: categories.accountName,
+          categoryAccountCode: categories.accountCode,
         })
         .from(invoices)
         .leftJoin(suppliers, eq(invoices.supplierId, suppliers.id))
