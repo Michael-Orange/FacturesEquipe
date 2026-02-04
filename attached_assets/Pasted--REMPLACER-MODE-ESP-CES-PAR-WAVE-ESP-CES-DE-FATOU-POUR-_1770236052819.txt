@@ -1,0 +1,152 @@
+# REMPLACER MODE "ESPÈCES" PAR "WAVE/ESPÈCES DE FATOU" POUR FATOU
+
+## CONTEXTE
+Pour Fatou uniquement, le mode de paiement "Espèces" doit être remplacé par "Wave/Espèces de Fatou" qui sera mappé vers "Caisse - Fatou" dans les exports Zoho.
+
+## OBJECTIF
+1. Ajouter le nouveau mapping en BDD
+2. Remplacer "Espèces" par "Wave/Espèces de Fatou" dans l'interface pour Fatou
+3. Optionnel : Mettre à jour les anciennes factures de Fatou
+
+## PARTIE 1 : AJOUTER LE MAPPING EN BDD
+
+### PROD et DEV
+```sql
+-- Ajouter le nouveau mode
+INSERT INTO payment_methods_mapping (app_name, zoho_name, created_at, updated_at)
+VALUES ('Wave/Espèces de Fatou', 'Caisse - Fatou', NOW(), NOW());
+Vérification
+SELECT id, app_name, zoho_name 
+FROM payment_methods_mapping 
+WHERE zoho_name LIKE '%Fatou%';
+Résultat attendu :
+id | app_name              | zoho_name
+X  | Wave/Espèces de Fatou | Caisse - Fatou
+PARTIE 2 : MODIFIER L'INTERFACE
+Fichier à modifier
+client/src/components/InvoiceForm.tsx
+Modification 1 - Dropdown principal (ligne ~817)
+Code actuel :
+{isFatou ? (
+  <>
+    <SelectItem value="Wave Business Caisse" data-testid="option-payment-WaveBusinessCaisse">
+      Wave Business Caisse
+    </SelectItem>
+    <SelectItem value="Espèces" data-testid="option-payment-Especes">
+      Espèces
+    </SelectItem>
+  </>
+) : (
+Remplacer par :
+{isFatou ? (
+  <>
+    <SelectItem value="Wave Business Caisse" data-testid="option-payment-WaveBusinessCaisse">
+      Wave Business Caisse
+    </SelectItem>
+    <SelectItem value="Wave/Espèces de Fatou" data-testid="option-payment-WaveEspecesFatou">
+      Wave/Espèces de Fatou
+    </SelectItem>
+  </>
+) : (
+Modification 2 - Dropdown paiement initial facture fournisseur (ligne ~767)
+Localiser le dropdown dans la section "Paiement initial" (pour les factures fournisseur)
+Code actuel :
+{isFatou ? (
+  <>
+    <SelectItem value="Wave Business Caisse">Wave Business Caisse</SelectItem>
+    <SelectItem value="Espèces">Espèces</SelectItem>
+  </>
+) : (
+Remplacer par :
+{isFatou ? (
+  <>
+    <SelectItem value="Wave Business Caisse">Wave Business Caisse</SelectItem>
+    <SelectItem value="Wave/Espèces de Fatou">Wave/Espèces de Fatou</SelectItem>
+  </>
+) : (
+Modification 3 - Valeur par défaut (ligne ~143)
+Localiser la définition de defaultPaymentType (ligne ~143) :
+Code actuel :
+const isFatou = userName === "Fatou";
+const defaultPaymentType = isFatou ? "Wave Business Caisse" : "Wave Business";
+Laisser tel quel (Wave Business Caisse reste le défaut pour Fatou)
+PARTIE 3 : METTRE À JOUR LES ANCIENNES FACTURES (OPTIONNEL)
+Si tu veux que les anciennes factures de Fatou avec "Espèces" affichent "Caisse - Fatou" dans les exports :
+PROD
+-- Identifier l'ID de Fatou
+SELECT id, name FROM users WHERE name LIKE '%Fatou%';
+
+-- Mettre à jour les factures de Fatou
+UPDATE invoices
+SET payment_type = 'Wave/Espèces de Fatou',
+    updated_at = NOW()
+WHERE payment_type = 'Espèces'
+AND user_id = (SELECT id FROM users WHERE name LIKE '%Fatou%');
+Vérification
+-- Voir les factures mises à jour
+SELECT 
+  u.name as user_name,
+  i.invoice_number,
+  i.payment_type,
+  i.date
+FROM invoices i
+JOIN users u ON i.user_id = u.id
+WHERE u.name LIKE '%Fatou%'
+AND i.payment_type = 'Wave/Espèces de Fatou'
+ORDER BY i.date DESC
+LIMIT 10;
+Note : Cette étape est optionnelle. Si tu ne la fais pas, les anciennes factures de Fatou avec "Espèces" continueront à afficher "Caisse en monnaie nationale" dans les exports.
+RÉSULTAT ATTENDU
+Interface Fatou - Avant
+Type de règlement :
+- Wave Business Caisse
+- Espèces
+Interface Fatou - Après
+Type de règlement :
+- Wave Business Caisse
+- Wave/Espèces de Fatou
+Interface Michael/Marine - Inchangée
+Type de règlement :
+- Wave Business
+- Espèces
+- Perso remboursé par Wave Business
+Export Zoho Fatou
+Paid Through
+Banques - autres (Wave Business Caisse)
+Caisse - Fatou  ← NOUVEAU pour "Wave/Espèces de Fatou"
+VALIDATION
+Exécuter INSERT en BDD (PROD + DEV)
+Redémarrer l'application
+Se connecter avec le token de Fatou
+Créer une nouvelle facture
+Vérifier dropdown "Type de règlement" :
+✅ "Wave Business Caisse"
+✅ "Wave/Espèces de Fatou"
+❌ Plus de "Espèces" seul
+Sélectionner "Wave/Espèces de Fatou"
+Soumettre la facture
+Exporter Zoho Expenses pour Fatou
+Vérifier "Paid Through" = "Caisse - Fatou"
+POINTS D'ATTENTION
+Modifier les 2 dropdowns (formulaire principal + paiement initial)
+INSERT BDD AVANT de tester l'interface
+Redémarrer le serveur après INSERT
+L'UPDATE des anciennes factures est OPTIONNEL
+Michael et Marine gardent "Espèces" (inchangé pour eux)
+
+---
+
+## ✅ RÉCAPITULATIF
+
+**Ce qui change :**
+
+1. **BDD :** Ajout mapping "Wave/Espèces de Fatou" → "Caisse - Fatou"
+
+2. **Interface Fatou :**
+   - ❌ Retire "Espèces"
+   - ✅ Ajoute "Wave/Espèces de Fatou"
+
+3. **Exports Zoho (nouvelles factures Fatou) :**
+   - "Wave/Espèces de Fatou" → "Caisse - Fatou"
+
+4. **Michael/Marine :** Aucun changement

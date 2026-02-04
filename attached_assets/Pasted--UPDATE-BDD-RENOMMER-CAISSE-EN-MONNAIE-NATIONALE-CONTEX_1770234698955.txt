@@ -1,0 +1,91 @@
+# UPDATE BDD - RENOMMER "CAISSE EN MONNAIE NATIONALE"
+
+## CONTEXTE
+Le mode de paiement "Espèces" est actuellement mappé vers "Caisse en monnaie nationale" dans les exports Zoho. Il faut le renommer en "Caisse en monnaie nationale - Fatou" pour distinguer de qui c'est la caisse.
+
+## OBJECTIF
+Modifier le zoho_name dans payment_methods_mapping pour le mode "Espèces" (ID 3) en PRODUCTION et DEV.
+
+## ÉTAPE 1 : VÉRIFIER L'ÉTAT ACTUEL EN PROD
+
+```sql
+-- Voir le mapping actuel pour "Espèces"
+SELECT id, app_name, zoho_name
+FROM payment_methods_mapping
+WHERE id = 3 OR app_name = 'Espèces';
+Résultat actuel attendu :
+id | app_name | zoho_name
+3  | Espèces  | Caisse en monnaie nationale
+ÉTAPE 2 : UPDATE EN PROD
+-- Renommer en "Caisse en monnaie nationale - Fatou"
+UPDATE payment_methods_mapping
+SET zoho_name = 'Caisse en monnaie nationale - Fatou',
+    updated_at = NOW()
+WHERE id = 3;
+ÉTAPE 3 : VÉRIFIER LA CORRECTION
+-- Confirmer le changement
+SELECT id, app_name, zoho_name
+FROM payment_methods_mapping
+WHERE id = 3;
+Résultat attendu :
+id | app_name | zoho_name
+3  | Espèces  | Caisse en monnaie nationale - Fatou
+ÉTAPE 4 : APPLIQUER AUSSI EN DEV
+Répéter les mêmes étapes (ÉTAPE 2 et 3) sur la base de données DEV.
+ÉTAPE 5 : TESTER LE RÉSULTAT
+-- Voir quelques factures qui utilisent "Espèces"
+SELECT 
+  i.invoice_number,
+  i.date,
+  i.payment_type,
+  pm.zoho_name as "Paid Through (export)"
+FROM invoices i
+LEFT JOIN payment_methods_mapping pm ON i.payment_type = pm.app_name
+WHERE i.payment_type = 'Espèces'
+ORDER BY i.date DESC
+LIMIT 5;
+Vérifier que "Paid Through (export)" = "Caisse en monnaie nationale - Fatou"
+ÉTAPE 6 : REDÉMARRER LE SERVEUR
+Après modification de la BDD, redémarrer l'application pour recharger les données.
+ÉTAPE 7 : VALIDATION EXPORT
+Aller dans l'admin
+Exporter Zoho Expenses pour un user qui a des paiements en Espèces
+Ouvrir le CSV
+Vérifier colonne "Paid Through" pour les paiements "Espèces"
+RÉSULTAT ATTENDU
+Export CSV - Avant
+Entry Number,Paid Through,Vendor,...
+1,Caisse en monnaie nationale,So Sushi Dakar,...
+2,Caisse en monnaie nationale,Total Energies,...
+Export CSV - Après
+Entry Number,Paid Through,Vendor,...
+1,Caisse en monnaie nationale - Fatou,So Sushi Dakar,...
+2,Caisse en monnaie nationale - Fatou,Total Energies,...
+ROLLBACK SI PROBLÈME
+UPDATE payment_methods_mapping
+SET zoho_name = 'Caisse en monnaie nationale',
+    updated_at = NOW()
+WHERE id = 3;
+
+---
+
+## 🚀 OU DIRECTEMENT EN SQL
+
+**Si tu préfères le faire directement comme tout à l'heure :**
+
+### 1. En PROD (Neon Console)
+```sql
+UPDATE payment_methods_mapping
+SET zoho_name = 'Caisse en monnaie nationale - Fatou'
+WHERE id = 3;
+2. En DEV (Neon Console)
+UPDATE payment_methods_mapping
+SET zoho_name = 'Caisse en monnaie nationale - Fatou'
+WHERE id = 3;
+3. Redémarrer Replit
+4. Tester un export
+✅ CHECKLIST
+ UPDATE exécuté en PROD
+ UPDATE exécuté en DEV
+ Serveur redémarré
+ Export testé → "Caisse en monnaie nationale - Fatou" apparaît
