@@ -1228,8 +1228,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper function to generate Zoho CSV for expenses
   function generateZohoExpenseCSV(expenseData: any[]): string {
-    // Headers exactly as in Zoho Books import template (29 columns - added Expense Account Name + Tags)
-    const csvHeader = "Entry Number,Expense Date,Expense Account,Expense Account Name,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,Branch Name,Employee Email,CF.company,Project Name,Tags\n";
+    // Headers exactly as in Zoho Books import template (31 columns - added TDS_Name and TDS_Percentage)
+    const csvHeader = "Entry Number,Expense Date,Expense Account,Expense Account Name,Paid Through,Vendor,Expense Description,Currency Code,Exchange Rate,Expense Amount,Tax Name,Tax Percentage,Is Inclusive Tax,Is Billable,Customer Name,Reference#,Mileage Rate,Distance,Start Odometer Reading,End Odometer Reading,Mileage Unit,Mileage Type,Expense Reference ID,Tax Type,TDS_Name,TDS_Percentage,Branch Name,Employee Email,CF.company,Project Name,Tags\n";
     
     const csvRows = expenseData.map((exp, index) => {
       const entryNumber = index + 1;
@@ -1249,13 +1249,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Vendor in Title Case
       const vendor = toTitleCase(exp.supplierName || "");
       
-      // Expense Amount: use amount_real_ttc for Zoho
-      const expenseAmount = parseFloat(exp.amountRealTTC || exp.amountDisplayTTC).toFixed(2);
+      // Expense Amount logic:
+      // - If BRS: use amountRealTTC (brut = net/0.95, Zoho calculates the 5% deduction)
+      // - Else: use amountDisplayTTC (what user entered)
+      const expenseAmount = exp.hasBrs 
+        ? parseFloat(exp.amountRealTTC || exp.amountDisplayTTC).toFixed(2)
+        : parseFloat(exp.amountDisplayTTC).toFixed(2);
       
-      // Tax fields: only if VAT applicable
-      const taxName = exp.vatApplicable ? "TVA" : "";
+      // Tax fields: only if VAT applicable (Zoho calculates from TTC)
+      const taxName = exp.vatApplicable ? "TVA 18%" : "";
       const taxPercentage = exp.vatApplicable ? "18" : "";
-      const isInclusiveTax = exp.vatApplicable ? "true" : "";
+      const isInclusiveTax = exp.vatApplicable ? "TRUE" : "";
+      
+      // TDS fields: only if BRS applicable (Zoho calculates the 5% deduction)
+      const tdsName = exp.hasBrs ? "BRS" : "";
+      const tdsPercentage = exp.hasBrs ? "5" : "";
       
       // Reference# = invoice_number (DEP-XX-YYMM-XXX)
       const reference = exp.invoiceNumber || "";
@@ -1306,6 +1314,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "NonMileage",                         // Mileage Type
         "",                                   // Expense Reference ID
         "",                                   // Tax Type
+        tdsName,                              // TDS_Name (BRS if applicable)
+        tdsPercentage,                        // TDS_Percentage (5 if BRS)
         "",                                   // Branch Name
         "",                                   // Employee Email
         "",                                   // CF.company
@@ -1355,6 +1365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amountDisplayTTC: invoices.amountDisplayTTC,
           amountRealTTC: invoices.amountRealTTC,
           vatApplicable: invoices.vatApplicable,
+          hasBrs: invoices.hasBrs,
           description: invoices.description,
           paymentType: invoices.paymentType,
           invoiceNumber: invoices.invoiceNumber,
