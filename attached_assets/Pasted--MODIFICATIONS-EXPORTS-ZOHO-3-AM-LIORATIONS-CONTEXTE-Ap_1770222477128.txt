@@ -1,0 +1,150 @@
+# MODIFICATIONS EXPORTS ZOHO - 3 AMÉLIORATIONS
+
+## CONTEXTE
+Application FacturesEquipe - Exports CSV pour Zoho Expenses et Zoho Bills.
+Trois améliorations à implémenter pour faciliter l'import comptable et améliorer la lisibilité.
+
+## OBJECTIFS
+
+### 1. DOUBLE COLONNE EXPENSE ACCOUNT
+Ajouter deux colonnes au lieu d'une pour les comptes comptables :
+- "Expense Account" : Code numérique (account_code) - ex: 6383000000
+- "Expense Account Name" : Nom descriptif (account_name) - ex: "Réceptions"
+
+### 2. CORRIGER MAPPING PAYMENT METHOD
+Mettre à jour la table payment_methods_mapping pour que "Perso remboursé par Wave Business" soit correctement mappé.
+
+### 3. FORMATAGE TITLE CASE VENDOR
+Formater les noms de fournisseurs en Title Case (première lettre de chaque mot en majuscule).
+Exemples : "CAFE LULU" → "Cafe Lulu", "TOTAL ENERGIES" → "Total Energies"
+
+## PARTIE 1 : MODIFICATION BASE DE DONNÉES
+
+### Requête SQL à exécuter
+
+```sql
+UPDATE payment_methods_mapping 
+SET app_name = 'Perso remboursé par Wave Business'
+WHERE id = 4;
+Résultat attendu :
+app_name = "Perso remboursé par Wave Business"
+zoho_name = "Banques - autres (Wave Business Principal)"
+PARTIE 2 : MODIFICATION CODE - EXPORTS CSV
+Fichier à modifier
+server/routes.ts
+A. FONCTION UTILITAIRE TITLE CASE
+Ajouter cette fonction en haut du fichier, après les imports :
+/**
+ * Convertit une chaîne en Title Case (première lettre de chaque mot en majuscule)
+ * Ex: "CAFE LULU" → "Cafe Lulu"
+ */
+function toTitleCase(str: string): string {
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+B. EXPORT ZOHO EXPENSES (autour ligne 1320-1360)
+ÉTAPE 1 - Modifier la requête SQL
+Localiser la requête autour de la ligne 1356 :
+const result = await db
+  .select({
+    categoryAccountName: categories.accountName,
+    // ... autres champs
+  })
+Ajouter le champ accountCode :
+const result = await db
+  .select({
+    categoryAccountName: categories.accountName,
+    categoryAccountCode: categories.accountCode,  // ← AJOUTER
+    // ... autres champs
+  })
+ÉTAPE 2 - Modifier la génération des variables
+Localiser autour de la ligne 1330 :
+const expenseAccount = exp.categoryAccountName || "";
+const vendor = exp.vendorName || "";
+Remplacer par :
+const expenseAccount = exp.categoryAccountCode || "";  // Code numérique
+const expenseAccountName = exp.categoryAccountName || "";  // Nom descriptif
+const vendor = toTitleCase(exp.vendorName || "");  // ← FORMATAGE TITLE CASE
+ÉTAPE 3 - Ajouter la colonne dans le CSV
+Localiser où les colonnes sont définies (autour ligne 1335) :
+"Expense Account": expenseAccount,
+"Vendor": vendor,
+Remplacer par :
+"Expense Account": expenseAccount,
+"Expense Account Name": expenseAccountName,  // ← NOUVELLE COLONNE
+"Vendor": vendor,  // ← Déjà modifié à l'étape 2
+C. EXPORT ZOHO BILLS (autour ligne 1400-1450)
+Appliquer exactement les MÊMES modifications que pour Zoho Expenses :
+ÉTAPE 1 - Requête SQL
+Ajouter categoryAccountCode: categories.accountCode dans le SELECT
+ÉTAPE 2 - Variables
+const expenseAccount = exp.categoryAccountCode || "";
+const expenseAccountName = exp.categoryAccountName || "";
+const vendor = toTitleCase(exp.vendorName || "");
+ÉTAPE 3 - Colonnes CSV
+"Expense Account": expenseAccount,
+"Expense Account Name": expenseAccountName,
+"Vendor": vendor,
+RÉSULTATS ATTENDUS
+1. Base de données
+SELECT id, app_name, zoho_name FROM payment_methods_mapping WHERE id = 4;
+Retourne :
+id | app_name                                | zoho_name
+4  | Perso remboursé par Wave Business      | Banques - autres (Wave Business Principal)
+2. Export CSV - Avant
+Date,Vendor,Expense Account,Amount,Paid Through,...
+2026-01-15,CAFE LULU,Réceptions,45.50,Perso remboursé par Wave Business,...
+3. Export CSV - Après
+Date,Vendor,Expense Account,Expense Account Name,Amount,Paid Through,...
+2026-01-15,Cafe Lulu,6383000000,Réceptions,45.50,Banques - autres (Wave Business Principal),...
+VALIDATION
+Tests base de données
+Exécuter UPDATE payment_methods_mapping
+Vérifier SELECT id = 4
+Redémarrer serveur si nécessaire
+Tests exports Zoho Expenses
+Exporter pour Michael (janvier 2026)
+Vérifier colonnes "Expense Account" + "Expense Account Name"
+Vérifier codes comptables (ex: 6383000000)
+Vérifier formatage vendors (ex: "Cafe Lulu", "Total Energies")
+Vérifier "Paid Through" = "Banques - autres (Wave Business Principal)"
+Tests exports Zoho Bills
+Mêmes vérifications que Zoho Expenses
+POINTS D'ATTENTION
+UPDATE base de données AVANT de tester exports
+La fonction toTitleCase gère les chaînes vides/null
+Respecter l'ordre : "Expense Account" puis "Expense Account Name"
+Tous les vendors sont formatés en Title Case dans les exports
+Les données source (table vendors) ne sont PAS modifiées
+Gérer les cas null avec || ""
+Vérifier que console.warn ne s'affiche plus pour "Perso remboursé par Wave Business"
+
+---
+
+## ✅ CHECKLIST POST-BUILD
+
+**Base de données :**
+- [ ] UPDATE payment_methods_mapping ID 4 exécuté
+- [ ] Vérification app_name = "Perso remboursé par Wave Business"
+
+**Code :**
+- [ ] Fonction toTitleCase ajoutée
+- [ ] Zoho Expenses : 3 modifications appliquées
+- [ ] Zoho Bills : 3 modifications appliquées
+
+**Tests Zoho Expenses :**
+- [ ] Colonnes "Expense Account" (code) + "Expense Account Name" (nom) présentes
+- [ ] Vendors en Title Case (ex: "Cafe Lulu", "Total Energies")
+- [ ] "Paid Through" correct pour paiements perso
+- [ ] Codes comptables corrects
+
+**Tests Zoho Bills :**
+- [ ] Mêmes vérifications
+
+**Import comptable :**
+- [ ] CSV importable sans erreur
+- [ ] Codes comptables reconnus
