@@ -1,0 +1,178 @@
+📋 BRIEF POUR REPLIT - INVESTIGATION MAPPING "PERSO REMBOURSÉ"
+Copie-colle ce bloc dans Replit :
+# INVESTIGATION - MAPPING PAIEMENT "PERSO REMBOURSÉ"
+
+## CONTEXTE
+Le mapping du mode de paiement "Perso remboursé par Wave Business" devrait afficher "Banques - autres (Wave Business Principal)" dans les exports Zoho, mais le texte original apparaît encore dans les rapports.
+
+## OBJECTIF
+Diagnostiquer pourquoi le mapping ne fonctionne pas et corriger le problème.
+
+## ÉTAPES D'INVESTIGATION
+
+### 1. VÉRIFIER L'ÉTAT DE LA TABLE MAPPING
+
+**Requête SQL à exécuter :**
+```sql
+SELECT id, app_name, zoho_name, created_at, updated_at
+FROM payment_methods_mapping
+WHERE id = 4 OR app_name LIKE '%Perso%' OR zoho_name LIKE '%Wave Business%';
+Résultat attendu :
+id | app_name                                | zoho_name
+4  | Perso remboursé par Wave Business      | Banques - autres (Wave Business Principal)
+Si différent : Noter la valeur exacte de app_name.
+2. VÉRIFIER LES VALEURS DANS LES FACTURES
+Requête SQL :
+SELECT DISTINCT payment_type, COUNT(*) as count
+FROM invoices
+WHERE payment_type LIKE '%Perso%'
+GROUP BY payment_type;
+Objectif : Identifier les variations exactes (casse, espaces, etc.)
+Exemples possibles :
+"Perso remboursé par Wave Business" (bon)
+"Perso remboursé" (tronqué)
+"perso remboursé par wave business" (minuscules)
+"Perso remboursé par Wave Business " (espace en fin)
+3. TESTER LE JOIN MANUELLEMENT
+Requête SQL pour simuler le JOIN de l'export :
+SELECT 
+  i.id,
+  i.invoice_number,
+  i.payment_type as "PaymentType (facture)",
+  pm.app_name as "AppName (mapping)",
+  pm.zoho_name as "ZohoName (export)",
+  CASE 
+    WHEN pm.zoho_name IS NULL THEN i.payment_type 
+    ELSE pm.zoho_name 
+  END as "Paid Through (résultat final)"
+FROM invoices i
+LEFT JOIN payment_methods_mapping pm ON i.payment_type = pm.app_name
+WHERE i.payment_type LIKE '%Perso%'
+LIMIT 10;
+Analyser les résultats :
+Si "ZohoName (export)" est NULL → Le JOIN ne matche pas
+Si "Paid Through (résultat final)" = "Perso remboursé..." → Le fallback est utilisé
+4. COMPARAISON CARACTÈRE PAR CARACTÈRE
+Si le JOIN ne fonctionne toujours pas :
+-- Comparer longueur et contenu
+SELECT 
+  'Facture' as source,
+  payment_type as valeur,
+  LENGTH(payment_type) as longueur,
+  payment_type = 'Perso remboursé par Wave Business' as "Égalité stricte"
+FROM invoices
+WHERE payment_type LIKE '%Perso%'
+LIMIT 1
+
+UNION ALL
+
+SELECT 
+  'Mapping' as source,
+  app_name as valeur,
+  LENGTH(app_name) as longueur,
+  app_name = 'Perso remboursé par Wave Business' as "Égalité stricte"
+FROM payment_methods_mapping
+WHERE id = 4;
+Vérifier :
+Longueurs identiques ?
+Égalité stricte = true ?
+Espaces invisibles ?
+SOLUTIONS SELON LE DIAGNOSTIC
+CAS A : app_name dans mapping est "Perso remboursé" (tronqué)
+Solution : UPDATE la table
+UPDATE payment_methods_mapping 
+SET app_name = 'Perso remboursé par Wave Business'
+WHERE id = 4;
+Puis redémarrer le serveur.
+CAS B : Factures ont des variantes (espaces, casse)
+Solution 1 - Nettoyer les factures (recommandé) :
+-- Vérifier combien sont affectées
+SELECT COUNT(*) FROM invoices 
+WHERE payment_type LIKE '%Perso%' 
+AND payment_type != 'Perso remboursé par Wave Business';
+
+-- Standardiser
+UPDATE invoices 
+SET payment_type = 'Perso remboursé par Wave Business'
+WHERE payment_type LIKE '%Perso%' 
+AND payment_type != 'Perso remboursé par Wave Business';
+Solution 2 - Ajouter des mappings pour les variantes :
+-- Si tu veux garder les anciennes valeurs
+INSERT INTO payment_methods_mapping (app_name, zoho_name)
+VALUES 
+  ('Perso remboursé', 'Banques - autres (Wave Business Principal)'),
+  ('perso remboursé par wave business', 'Banques - autres (Wave Business Principal)');
+CAS C : Problème dans le code (routes.ts)
+Vérifier la logique du JOIN :
+Fichier : server/routes.ts
+Chercher autour ligne 1350 :
+.leftJoin(paymentMethodsMapping, 
+  eq(invoices.paymentType, paymentMethodsMapping.appName))
+Vérifier que la variable utilisée dans le CSV est bien :
+const paidThrough = exp.paymentZohoName || exp.paymentType;
+Et pas :
+const paidThrough = exp.paymentType;  // ← ERREUR : ignore le mapping
+VALIDATION FINALE
+1. Après correction SQL
+-- Re-tester le JOIN
+SELECT 
+  i.invoice_number,
+  i.payment_type,
+  pm.zoho_name
+FROM invoices i
+LEFT JOIN payment_methods_mapping pm ON i.payment_type = pm.app_name
+WHERE i.payment_type LIKE '%Perso%'
+LIMIT 5;
+Tous les pm.zoho_name doivent être = "Banques - autres (Wave Business Principal)"
+2. Redémarrer le serveur
+Après toute modification BDD ou code.
+3. Tester l'export
+Aller dans Admin
+Export Zoho Expenses pour Michael (janvier 2026)
+Ouvrir le CSV
+Chercher une ligne avec paiement "Perso"
+Vérifier colonne "Paid Through" = "Banques - autres (Wave Business Principal)"
+RAPPORT ATTENDU
+Après investigation, Replit devrait fournir :
+État actuel :
+Valeur dans payment_methods_mapping (id=4)
+Nombre de factures concernées
+Variantes détectées
+Problème identifié :
+Mapping incorrect ?
+Factures avec variantes ?
+Code qui n'utilise pas le mapping ?
+Solution appliquée :
+UPDATE SQL exécuté
+Factures standardisées
+Code corrigé (si nécessaire)
+Résultat de validation :
+JOIN fonctionne en SQL
+Export CSV correct
+POINTS D'ATTENTION
+Toujours tester le JOIN en SQL AVANT de tester l'export
+Comparer les longueurs de chaîne (espaces invisibles)
+Redémarrer le serveur après modification BDD
+Garder une trace des UPDATE SQL effectués
+Ne pas modifier payment_methods_mapping si le problème vient des factures
+
+---
+
+## ✅ CHECKLIST INVESTIGATION
+
+**Diagnostic :**
+- [ ] État de `payment_methods_mapping` id=4 vérifié
+- [ ] Valeurs distinctes de `payment_type` listées
+- [ ] JOIN testé manuellement
+- [ ] Longueurs comparées
+
+**Correction :**
+- [ ] UPDATE appliqué si nécessaire
+- [ ] Factures standardisées si variantes détectées
+- [ ] Code vérifié si mapping ignoré
+
+**Validation :**
+- [ ] JOIN fonctionne en SQL
+- [ ] Serveur redémarré
+- [ ] Export CSV testé
+- [ ] "Banques - autres (Wave Business Principal)" apparaît correctement
