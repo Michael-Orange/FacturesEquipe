@@ -15,6 +15,19 @@ import { generateFileName } from "./utils";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+/**
+ * Convertit une chaîne en Title Case (première lettre de chaque mot en majuscule)
+ * Ex: "CAFE LULU" → "Cafe Lulu"
+ */
+function toTitleCase(str: string): string {
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Validate token
   app.get("/api/validate-token/:token", async (req: Request, res: Response) => {
