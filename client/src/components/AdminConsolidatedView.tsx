@@ -327,6 +327,7 @@ export function AdminConsolidatedView() {
                   <TableHead className="font-semibold">Catégorie</TableHead>
                   <TableHead className="font-semibold text-right">Montant TTC</TableHead>
                   <TableHead className="font-semibold text-right">Montant HT</TableHead>
+                  <TableHead className="font-semibold text-right">Brut BRS</TableHead>
                   <TableHead className="font-semibold">N° Facture</TableHead>
                   <TableHead className="font-semibold">Paiement</TableHead>
                   <TableHead className="font-semibold">Indicateurs</TableHead>
@@ -357,6 +358,11 @@ export function AdminConsolidatedView() {
                     <TableCell className="text-right whitespace-nowrap">
                       {invoice.vatApplicable && invoice.amountHT
                         ? `${formatAmount(invoice.amountHT)} F`
+                        : "-"}
+                    </TableCell>
+                    <TableCell className="text-right whitespace-nowrap">
+                      {invoice.hasBrs && invoice.amountRealTTC
+                        ? `${formatAmount(invoice.amountRealTTC)} F`
                         : "-"}
                     </TableCell>
                     <TableCell className="font-mono text-sm">

@@ -367,6 +367,9 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                 <TableHead className="text-primary-foreground font-semibold text-right">
                   Montant HT
                 </TableHead>
+                <TableHead className="text-primary-foreground font-semibold text-right">
+                  Brut BRS
+                </TableHead>
                 <TableHead className="text-primary-foreground font-semibold">N° Facture</TableHead>
                 <TableHead className="text-primary-foreground font-semibold text-center">
                   Paiement
@@ -415,6 +418,11 @@ export function TrackingTable({ invoices, onDownload, onEdit, onDelete, onViewDe
                   <TableCell className="text-right text-muted-foreground">
                     {invoice.vatApplicable && invoice.amountHT
                       ? `${formatAmount(invoice.amountHT)} FCFA`
+                      : "-"}
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {invoice.hasBrs && invoice.amountRealTTC
+                      ? `${formatAmount(invoice.amountRealTTC)} FCFA`
                       : "-"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
