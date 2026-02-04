@@ -1,0 +1,121 @@
+# AJOUT COLONNE TAGS AVEC LOGIQUE MPP/RD/STRUCTURE
+
+## CONTEXTE
+Exports Zoho Expenses et Zoho Bills - Certains projets (MPP, RD, Structure) doivent être traités comme des tags plutôt que comme des noms de projet classiques.
+
+## OBJECTIF
+Ajouter une colonne "Tags" dans les exports CSV et déplacer les valeurs MPP, RD et Structure depuis "Project Name" vers "Tags".
+
+## LOGIQUE MÉTIER
+
+### Règles de mapping Project Name ↔ Tags
+
+| Valeur projet en base | Colonne "Project Name" | Colonne "Tags" (nouvelle) |
+|-----------------------|------------------------|---------------------------|
+| "MPP"                 | (vide)                 | MPP                       |
+| "RD"                  | (vide)                 | RD                        |
+| "Structure"           | (vide)                 | Structure                 |
+| Autre valeur          | Valeur du projet       | (vide)                    |
+| NULL/vide             | (vide)                 | (vide)                    |
+
+**Valeurs exactes sensibles à la casse :** "MPP", "RD", "Structure" (majuscules comme indiqué)
+
+## MODIFICATIONS CODE
+
+### Fichier à modifier
+`server/routes.ts`
+
+### 1. EXPORT ZOHO EXPENSES (autour ligne 1320-1360)
+
+**ÉTAPE A - Modifier la génération des variables**
+
+Localiser où la variable `projectName` est créée (autour ligne 1330) :
+```typescript
+const projectName = exp.projectName || "";
+Remplacer par cette logique conditionnelle :
+// Logique Tags : MPP, RD, Structure vont dans Tags au lieu de Project Name
+const projectValue = exp.projectName || "";
+let projectName = "";
+let tags = "";
+
+if (projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure") {
+  tags = projectValue;  // Va dans Tags
+  projectName = "";     // Project Name reste vide
+} else {
+  projectName = projectValue;  // Va dans Project Name
+  tags = "";                    // Tags reste vide
+}
+ÉTAPE B - Ajouter la colonne Tags dans le CSV
+Localiser où les colonnes CSV sont définies (autour ligne 1335).
+Ajouter la colonne "Tags" juste après "Project Name" :
+"Project Name": projectName,
+"Tags": tags,  // ← NOUVELLE COLONNE
+2. EXPORT ZOHO BILLS (autour ligne 1400-1450)
+Appliquer exactement les MÊMES modifications (étapes A et B) :
+ÉTAPE A - Variables avec logique conditionnelle
+const projectValue = exp.projectName || "";
+let projectName = "";
+let tags = "";
+
+if (projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure") {
+  tags = projectValue;
+  projectName = "";
+} else {
+  projectName = projectValue;
+  tags = "";
+}
+ÉTAPE B - Colonne Tags dans CSV
+"Project Name": projectName,
+"Tags": tags,
+RÉSULTATS ATTENDUS
+Export CSV - Exemples
+Cas 1 : Projet = "MPP"
+...,Project Name,Tags,...
+...,              ,MPP,...
+Cas 2 : Projet = "Chantier Almadies"
+...,Project Name,Tags,...
+...,Chantier Almadies,,...
+Cas 3 : Projet = "RD"
+...,Project Name,Tags,...
+...,              ,RD,...
+Cas 4 : Projet vide
+...,Project Name,Tags,...
+...,              ,,...
+VALIDATION
+Tests Zoho Expenses
+Exporter pour janvier 2026
+Vérifier colonne "Tags" présente
+Tester avec une dépense projet "MPP" → Project Name vide, Tags = "MPP"
+Tester avec une dépense projet normal → Project Name rempli, Tags vide
+Tester avec "RD" et "Structure"
+Tests Zoho Bills
+Mêmes vérifications que Zoho Expenses
+Cas de test à vérifier
+ MPP → Tags = "MPP", Project Name = ""
+ RD → Tags = "RD", Project Name = ""
+ Structure → Tags = "Structure", Project Name = ""
+ Projet normal → Tags = "", Project Name = valeur
+ Pas de projet → Tags = "", Project Name = ""
+POINTS D'ATTENTION
+Les valeurs "MPP", "RD", "Structure" sont sensibles à la casse (exactement comme écrit)
+Ne PAS modifier la base de données, juste la logique d'export
+Colonne "Tags" toujours présente même si vide
+Position : "Tags" juste après "Project Name"
+Appliquer aux 2 exports (Expenses et Bills)
+La logique utilise === pour la comparaison exacte
+
+---
+
+## ✅ CHECKLIST POST-BUILD
+
+**Code :**
+- [ ] Logique conditionnelle ajoutée dans Zoho Expenses
+- [ ] Logique conditionnelle ajoutée dans Zoho Bills
+- [ ] Colonne "Tags" ajoutée aux 2 exports
+
+**Tests :**
+- [ ] Export avec projet "MPP" → Tags rempli, Project Name vide
+- [ ] Export avec projet "RD" → Tags rempli, Project Name vide
+- [ ] Export avec projet "Structure" → Tags rempli, Project Name vide
+- [ ] Export avec projet normal → Project Name rempli, Tags vide
+- [ ] Export sans projet → Les deux colonnes vides
