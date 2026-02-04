@@ -752,7 +752,7 @@ export function InvoiceForm({
                     {isFatou ? (
                       <>
                         <SelectItem value="Wave Business Caisse">Wave Business Caisse</SelectItem>
-                        <SelectItem value="Espèces">Espèces</SelectItem>
+                        <SelectItem value="Wave/Espèces de Fatou">Wave/Espèces de Fatou</SelectItem>
                       </>
                     ) : (
                       <>
@@ -842,8 +842,8 @@ export function InvoiceForm({
                 <SelectItem value="Wave Business Caisse" data-testid="option-payment-WaveBusinessCaisse">
                   Wave Business Caisse
                 </SelectItem>
-                <SelectItem value="Espèces" data-testid="option-payment-Especes">
-                  Espèces
+                <SelectItem value="Wave/Espèces de Fatou" data-testid="option-payment-WaveEspecesFatou">
+                  Wave/Espèces de Fatou
                 </SelectItem>
               </>
             ) : (
