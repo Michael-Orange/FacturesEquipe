@@ -1250,16 +1250,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const vendor = toTitleCase(exp.supplierName || "");
       
       // Expense Amount logic:
-      // - If BRS: use amountRealTTC (brut = net/0.95, Zoho calculates the 5% deduction)
-      // - Else: use amountDisplayTTC (what user entered)
-      const expenseAmount = exp.hasBrs 
-        ? parseFloat(exp.amountRealTTC || exp.amountDisplayTTC).toFixed(2)
-        : parseFloat(exp.amountDisplayTTC).toFixed(2);
+      // Priority: 
+      // 1. If TVA applicable: use amountHT (Zoho will add the 18% tax)
+      // 2. If BRS: use amountRealTTC (brut = net/0.95, Zoho calculates the 5% deduction)
+      // 3. Otherwise: use amountDisplayTTC (what user entered)
+      let expenseAmount: string;
+      if (exp.vatApplicable && exp.amountHT) {
+        // TVA case: export HT, Zoho adds 18% tax
+        expenseAmount = parseFloat(exp.amountHT).toFixed(2);
+      } else if (exp.hasBrs) {
+        // BRS case (no TVA): export brut amount
+        expenseAmount = parseFloat(exp.amountRealTTC || exp.amountDisplayTTC).toFixed(2);
+      } else {
+        // Simple case: no TVA, no BRS
+        expenseAmount = parseFloat(exp.amountDisplayTTC).toFixed(2);
+      }
       
-      // Tax fields: only if VAT applicable (Zoho calculates from TTC)
+      // Tax fields: only if VAT applicable (export HT, Zoho adds tax)
       const taxName = exp.vatApplicable ? "TVA 18%" : "";
       const taxPercentage = exp.vatApplicable ? "18" : "";
-      const isInclusiveTax = exp.vatApplicable ? "TRUE" : "";
+      const isInclusiveTax = exp.vatApplicable ? "FALSE" : "";
       
       // TDS fields: only if BRS applicable (Zoho calculates the 5% deduction)
       const tdsName = exp.hasBrs ? "BRS" : "";
@@ -1363,6 +1373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           supplierId: invoices.supplierId,
           supplierName: suppliers.name,
           amountDisplayTTC: invoices.amountDisplayTTC,
+          amountHT: invoices.amountHT,
           amountRealTTC: invoices.amountRealTTC,
           vatApplicable: invoices.vatApplicable,
           hasBrs: invoices.hasBrs,
@@ -1423,16 +1434,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const vendorName = toTitleCase(bill.supplierName || "");
       
       // Rate logic:
-      // - If BRS: use amountRealTTC (brut = net/0.95, Zoho calculates the 5% deduction)
-      // - Else: use amountDisplayTTC (what user entered)
-      const rate = bill.hasBrs 
-        ? parseFloat(bill.amountRealTTC || bill.amountDisplayTTC).toFixed(2)
-        : parseFloat(bill.amountDisplayTTC).toFixed(2);
+      // Priority: 
+      // 1. If TVA applicable: use amountHT (Zoho will add the 18% tax)
+      // 2. If BRS: use amountRealTTC (brut = net/0.95, Zoho calculates the 5% deduction)
+      // 3. Otherwise: use amountDisplayTTC (what user entered)
+      let rate: string;
+      if (bill.vatApplicable && bill.amountHT) {
+        // TVA case: export HT, Zoho adds 18% tax
+        rate = parseFloat(bill.amountHT).toFixed(2);
+      } else if (bill.hasBrs) {
+        // BRS case (no TVA): export brut amount
+        rate = parseFloat(bill.amountRealTTC || bill.amountDisplayTTC).toFixed(2);
+      } else {
+        // Simple case: no TVA, no BRS
+        rate = parseFloat(bill.amountDisplayTTC).toFixed(2);
+      }
       
-      // Tax fields: only if VAT applicable (Zoho calculates from TTC)
+      // Tax fields: only if VAT applicable (export HT, Zoho adds tax)
       const taxName = bill.vatApplicable ? "TVA 18%" : "";
       const taxPercentage = bill.vatApplicable ? "18" : "";
-      const isInclusiveTax = bill.vatApplicable ? "TRUE" : "";
+      const isInclusiveTax = bill.vatApplicable ? "FALSE" : "";
       const taxType = bill.vatApplicable ? "ItemAmount" : "";
       
       // TDS fields: only if BRS applicable (Zoho calculates the 5% deduction)
