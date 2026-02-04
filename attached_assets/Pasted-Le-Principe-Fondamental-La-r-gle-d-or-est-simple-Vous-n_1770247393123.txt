@@ -1,0 +1,26 @@
+Le Principe Fondamental
+La règle d'or est simple : Vous ne pré-calculez rien dans votre fichier. Vous donnez à Zoho le montant de base et les instructions (la taxe, la retenue), et c'est lui qui fait tous les calculs.
+Préparation de votre Fichier d'Import (Excel/CSV)
+Votre fichier doit contenir des colonnes claires. Voici un modèle recommandé :
+Bill Date (Date facture)Tax NameTDS_NameBill Number (N° facture)Tax PercentageTDS_PercentageVendor Name (Fournisseur)Is Inclusive TaxAccount (Code du compte de charge)Description (Description de l'article)Quantity (Quantité)Rate (Prix unitaire)
+Comment Remplir votre Fichier pour Chaque Scénario
+Scénario A : Facture avec TVA (et votre prix est TTC)
+Vous achetez un article à 11,800 FCFA TTC (TVA 18% incluse).
+...11800TVA 18%18TRUE(vide)(vide)
+Logique : Vous donnez le montant TTC et l'instruction TRUE dit à Zoho de faire le calcul inversé pour trouver le HT et la TVA.
+Scénario B : Facture avec BRS (TDS) de 5%
+Vous recevez une facture de prestation de 158,000 FCFA, soumise à la BRS de 5%.
+...158000(vide)(vide)(vide)BRS5
+Logique : Vous donnez le montant total de la facture et les instructions de retenue. Zoho calculera lui-même le montant de la BRS (7,900) et le net à payer (150,100).
+Scénario C : Facture Simple (Sans Taxe, Sans BRS)
+Vous achetez un article pour 5,000 FCFA, sans aucune taxe applicable.
+...5000(vide)(vide)(vide)(vide)(vide)
+Logique : En laissant toutes les colonnes d'instructions vides, vous dites à Zoho qu'il n'y a aucun calcul à faire.
+Le Mappage des Champs dans Zoho Books
+C'est l'étape où vous faites la correspondance entre vos colonnes et les champs de Zoho.
+Détails de la factureNuméro de facture fournisseur*Bill NumberDate de la facture fournisseur*Bill DateDétails du vendeurNom du fournisseur*Vendor NameDétails de l'articleCompte*AccountDescriptionDescriptionQuantitéQuantityTauxRateDétails de la taxeNom de la taxeTax NamePourcentage de la taxeTax PercentageLe montant s'élève àIs Inclusive TaxTDS DetailsTDS NameTDS_NameTDS PercentageTDS_Percentage
+Champs à NE PAS mapper (très important) :
+Laissez le champ "Total" (au niveau de la facture) vide.
+Laissez le champ "Montant TDS" vide.
+Laissez le champ "TTC" (au niveau de la taxe) vide.
+En suivant ce guide, vos imports seront toujours corrects et vous gagnerez un temps précieux.
