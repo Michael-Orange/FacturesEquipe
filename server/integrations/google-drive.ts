@@ -109,6 +109,23 @@ export async function createFolder(folderName: string, parentFolderId: string): 
   return response.data.id!;
 }
 
+export async function getOrCreateSubfolder(parentFolderId: string, folderName: string): Promise<string> {
+  const drive = await getUncachableGoogleDriveClient();
+  
+  // Check if subfolder already exists
+  const existingFolders = await drive.files.list({
+    q: `'${parentFolderId}' in parents and name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id)',
+  });
+  
+  if (existingFolders.data.files && existingFolders.data.files.length > 0) {
+    return existingFolders.data.files[0].id!;
+  }
+  
+  // Create new subfolder
+  return await createFolder(folderName, parentFolderId);
+}
+
 export async function listFilesInFolder(folderId: string): Promise<string[]> {
   const drive = await getUncachableGoogleDriveClient();
   

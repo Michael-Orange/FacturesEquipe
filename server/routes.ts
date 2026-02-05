@@ -5,7 +5,7 @@ import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 import { storage, generateExpenseNumber } from "./storage";
 import { db } from "./db";
-import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles } from "./integrations/google-drive";
+import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles, getOrCreateSubfolder } from "./integrations/google-drive";
 import { sendInvoiceConfirmation, sendPaymentConfirmation } from "./integrations/resend";
 import { insertInvoiceSchema, insertSupplierSchema, insertPaymentSchema, invoices, payments, InvoiceWithDetails, InvoiceWithPayments, paymentMethodsMapping, categories, suppliers, projects } from "@shared/schema";
 import { isNull, eq, and, gte, lte, desc, asc, count, sql } from "drizzle-orm";
@@ -461,8 +461,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         file.originalname
       );
 
-      // Upload file to Google Drive
-      const driveFileId = await uploadFileToDrive(file, driveFolderId, fileName);
+      // Get or create subfolder based on invoice type
+      const subfolderName = invoiceType === 'expense' ? 'Dépenses' : 'Factures Fournisseurs';
+      const targetFolderId = await getOrCreateSubfolder(driveFolderId, subfolderName);
+
+      // Upload file to Google Drive subfolder
+      const driveFileId = await uploadFileToDrive(file, targetFolderId, fileName);
 
       // Determine category name for legacy field
       const categoryName = categoryData?.appName || category || "Non définie";
@@ -818,7 +822,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           file.originalname
         );
 
-        const driveFileId = await uploadFileToDrive(file, userToken.driveFolderId, fileName);
+        // Get or create subfolder based on invoice type
+        const subfolderName = newType === 'expense' ? 'Dépenses' : 'Factures Fournisseurs';
+        const targetFolderId = await getOrCreateSubfolder(userToken.driveFolderId, subfolderName);
+
+        const driveFileId = await uploadFileToDrive(file, targetFolderId, fileName);
 
         try {
           await deleteFileFromDrive(existingInvoice.driveFileId);
