@@ -1557,6 +1557,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           supplierId: invoices.supplierId,
           supplierName: suppliers.name,
           amountDisplayTTC: invoices.amountDisplayTTC,
+          amountHT: invoices.amountHT,
           amountRealTTC: invoices.amountRealTTC,
           vatApplicable: invoices.vatApplicable,
           hasBrs: invoices.hasBrs,
