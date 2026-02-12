@@ -1,6 +1,26 @@
 // Reference: google-drive blueprint
 import { google } from 'googleapis';
 import { Readable } from 'stream';
+import sharp from 'sharp';
+
+const ONE_MB = 1024 * 1024;
+const MAX_WIDTH = 2000;
+const JPEG_QUALITY = 85;
+
+async function compressImageIfNeeded(file: Express.Multer.File): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> {
+  const isImage = file.mimetype.startsWith('image/') && !file.mimetype.includes('gif');
+
+  if (!isImage || file.buffer.length <= ONE_MB) {
+    return { buffer: file.buffer, mimeType: file.mimetype, fileName: '' };
+  }
+
+  const compressed = await sharp(file.buffer)
+    .resize({ width: MAX_WIDTH, withoutEnlargement: true })
+    .jpeg({ quality: JPEG_QUALITY })
+    .toBuffer();
+
+  return { buffer: compressed, mimeType: 'image/jpeg', fileName: '.jpg' };
+}
 
 let connectionSettings: any;
 
@@ -59,14 +79,25 @@ export async function uploadFileToDrive(
 ): Promise<string> {
   const drive = await getUncachableGoogleDriveClient();
 
+  const { buffer, mimeType, fileName: newExt } = await compressImageIfNeeded(file);
+
+  let finalFileName = fileName;
+  if (newExt) {
+    if (/\.[^.]+$/.test(fileName)) {
+      finalFileName = fileName.replace(/\.[^.]+$/, newExt);
+    } else {
+      finalFileName = fileName + newExt;
+    }
+  }
+
   const fileMetadata = {
-    name: fileName,
+    name: finalFileName,
     parents: [folderId],
   };
 
   const media = {
-    mimeType: file.mimetype,
-    body: Readable.from(file.buffer),
+    mimeType,
+    body: Readable.from(buffer),
   };
 
   const response = await drive.files.create({
