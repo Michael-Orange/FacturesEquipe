@@ -1950,6 +1950,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Toggle project completion status (admin protected)
+  app.put("/api/admin/projects/:id/toggle-completed", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const project = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+      if (!project.length) {
+        return res.status(404).json({ message: "Projet introuvable" });
+      }
+      const newStatus = !project[0].isCompleted;
+      await db.update(projects).set({ isCompleted: newStatus }).where(eq(projects.id, id));
+      res.json({ id, isCompleted: newStatus });
+    } catch (error) {
+      console.error("Error toggling project completion:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

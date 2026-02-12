@@ -28,6 +28,7 @@ export const projects = pgTable("projects", {
   number: text("number").notNull().unique(),
   name: text("name").notNull(),
   startDate: text("start_date"),
+  isCompleted: boolean("is_completed").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Archive, Lock, Database, Calendar, FileText } from "lucide-react";
+import { Download, Archive, Lock, Database, Calendar, FileText, FolderOpen, CheckCircle2, Circle } from "lucide-react";
 import { AdminConsolidatedView } from "./AdminConsolidatedView";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface AdminDashboardProps {
   onExportCSV: () => Promise<void>;
@@ -669,6 +671,8 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
         </CardContent>
       </Card>
 
+      <ProjectManagement />
+
       <Card className="bg-muted/30">
         <CardHeader>
           <CardTitle className="text-lg">Informations</CardTitle>
@@ -735,5 +739,88 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+interface Project {
+  id: string;
+  number: string;
+  name: string;
+  isCompleted: boolean | null;
+}
+
+function ProjectManagement() {
+  const { toast } = useToast();
+  
+  const { data: projects = [], isLoading } = useQuery<Project[]>({
+    queryKey: ["/api/projects"],
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async (projectId: string) => {
+      const res = await apiRequest("PUT", `/api/admin/projects/${projectId}/toggle-completed`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Projet mis à jour" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de modifier le projet", variant: "destructive" });
+    },
+  });
+
+  const sortedProjects = [...projects].sort((a, b) => b.number.localeCompare(a.number));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <FolderOpen className="h-5 w-5" />
+          Gestion des projets
+        </CardTitle>
+        <CardDescription>Marquer les projets comme terminés pour les masquer du menu déroulant</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-muted-foreground text-sm">Chargement...</p>
+        ) : (
+          <div className="space-y-1">
+            {sortedProjects.map((project) => (
+              <div
+                key={project.id}
+                className="flex items-center justify-between gap-2 py-2 px-3 rounded-md hover-elevate"
+                data-testid={`project-row-${project.id}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <span className={`text-sm ${project.isCompleted ? "text-muted-foreground line-through" : ""}`}>
+                    {project.number} - {project.name}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant={project.isCompleted ? "secondary" : "outline"}
+                  onClick={() => toggleMutation.mutate(project.id)}
+                  disabled={toggleMutation.isPending}
+                  data-testid={`button-toggle-project-${project.id}`}
+                >
+                  {project.isCompleted ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 mr-1" />
+                      Terminé
+                    </>
+                  ) : (
+                    <>
+                      <Circle className="h-4 w-4 mr-1" />
+                      Actif
+                    </>
+                  )}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

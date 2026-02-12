@@ -14,6 +14,7 @@ interface Project {
   number: string;
   name: string;
   startDate?: string | null;
+  isCompleted?: boolean | null;
 }
 
 interface ProjectSelectProps {
@@ -24,12 +25,20 @@ interface ProjectSelectProps {
 }
 
 export function ProjectSelect({ projects, value, onChange, disabled = false }: ProjectSelectProps) {
-  const projects2025 = projects
-    .filter((p) => p.number.startsWith("2025-"))
+  const activeProjects = projects.filter((p) => !p.isCompleted);
+
+  const projectsRecent = activeProjects
+    .filter((p) => {
+      const year = parseInt(p.number.split("-")[0]);
+      return year >= 2025;
+    })
     .sort((a, b) => b.number.localeCompare(a.number));
 
-  const projectsOlder = projects
-    .filter((p) => !p.number.startsWith("2025-"))
+  const projectsOlder = activeProjects
+    .filter((p) => {
+      const year = parseInt(p.number.split("-")[0]);
+      return year < 2025;
+    })
     .sort((a, b) => {
       if (a.number === "2024-10") return 1;
       if (b.number === "2024-10") return -1;
@@ -50,12 +59,12 @@ export function ProjectSelect({ projects, value, onChange, disabled = false }: P
           <SelectValue placeholder="Sélectionner un projet..." />
         </SelectTrigger>
         <SelectContent>
-          {projects2025.length > 0 && (
+          {projectsRecent.length > 0 && (
             <SelectGroup>
               <SelectLabel className="text-sm font-semibold text-primary">
-                PROJETS ACTIFS 2025
+                PROJETS ACTIFS
               </SelectLabel>
-              {projects2025.map((project) => (
+              {projectsRecent.map((project) => (
                 <SelectItem
                   key={project.id}
                   value={project.id}
