@@ -1165,7 +1165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Tax fields: only if VAT applicable (export HT, Zoho adds tax)
-      const taxName = exp.vatApplicable ? "TVA 18%" : "";
+      const taxName = exp.vatApplicable ? "TVA" : "";
       const taxPercentage = exp.vatApplicable ? "18" : "";
       const isInclusiveTax = exp.vatApplicable ? "FALSE" : "";
       
@@ -1350,7 +1350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Tax fields: only if VAT applicable (export HT, Zoho adds tax)
-      const taxName = bill.vatApplicable ? "TVA 18%" : "";
+      const taxName = bill.vatApplicable ? "TVA" : "";
       const taxPercentage = bill.vatApplicable ? "18" : "";
       const isInclusiveTax = bill.vatApplicable ? "FALSE" : "";
       const taxType = bill.vatApplicable ? "ItemAmount" : "";
