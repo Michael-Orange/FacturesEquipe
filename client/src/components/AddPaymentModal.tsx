@@ -63,6 +63,8 @@ export function AddPaymentModal({
       { value: "Wave Business", label: "Wave Business" },
       { value: "Espèces", label: "Espèces" },
       { value: "Perso remboursé par Wave Business", label: "Perso remboursé par Wave Business" },
+      { value: "Chèque", label: "Chèque" },
+      { value: "CB", label: "CB" },
     ];
   })();
 

@@ -34,19 +34,24 @@ async function applyPaymentMappingMigrations() {
       .where(eq(paymentMethodsMapping.zohoName, oldName));
   }
 
-  // Insert Wave/Espèces de Fatou row if it doesn't exist
-  const existing = await db
-    .select()
-    .from(paymentMethodsMapping)
-    .where(eq(paymentMethodsMapping.appName, "Wave/Espèces de Fatou"))
-    .limit(1);
+  // Insert missing rows if they don't exist
+  const missingRows = [
+    { appName: "Wave/Espèces de Fatou", zohoName: "Caisse Espèces Fatou" },
+    { appName: "Chèque", zohoName: "Banque Atlantique - Compte principal" },
+    { appName: "CB", zohoName: "Banque Atlantique - Compte principal" },
+  ];
 
-  if (existing.length === 0) {
-    await db.insert(paymentMethodsMapping).values({
-      appName: "Wave/Espèces de Fatou",
-      zohoName: "Caisse Espèces Fatou",
-    });
-    console.log("✓ Inserted Wave/Espèces de Fatou payment mapping");
+  for (const row of missingRows) {
+    const existing = await db
+      .select()
+      .from(paymentMethodsMapping)
+      .where(eq(paymentMethodsMapping.appName, row.appName))
+      .limit(1);
+
+    if (existing.length === 0) {
+      await db.insert(paymentMethodsMapping).values(row);
+      console.log(`✓ Inserted payment mapping: ${row.appName}`);
+    }
   }
 }
 

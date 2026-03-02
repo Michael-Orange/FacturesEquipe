@@ -34,16 +34,20 @@ export function AdminDashboard({ onExportCSV, onResetDatabase, onLogout }: Admin
   const { toast } = useToast();
   
   // Zoho export states (Expenses)
-  const [zohoDateStart, setZohoDateStart] = useState<string>("");
-  const [zohoDateEnd, setZohoDateEnd] = useState<string>("");
+  const _now = new Date();
+  const _firstDayPrevMonth = new Date(_now.getFullYear(), _now.getMonth() - 1, 1).toISOString().split("T")[0];
+  const _lastDayPrevMonth = new Date(_now.getFullYear(), _now.getMonth(), 0).toISOString().split("T")[0];
+
+  const [zohoDateStart, setZohoDateStart] = useState<string>(_firstDayPrevMonth);
+  const [zohoDateEnd, setZohoDateEnd] = useState<string>(_lastDayPrevMonth);
   const [isExportingZohoMichael, setIsExportingZohoMichael] = useState(false);
   const [isExportingZohoMarine, setIsExportingZohoMarine] = useState(false);
   const [isExportingZohoFatou, setIsExportingZohoFatou] = useState(false);
   const [isExportingZohoAll, setIsExportingZohoAll] = useState(false);
   
   // Zoho Bills export states (Factures Fournisseurs)
-  const [billsDateStart, setBillsDateStart] = useState<string>("");
-  const [billsDateEnd, setBillsDateEnd] = useState<string>("");
+  const [billsDateStart, setBillsDateStart] = useState<string>(_firstDayPrevMonth);
+  const [billsDateEnd, setBillsDateEnd] = useState<string>(_lastDayPrevMonth);
   const [isExportingBillsMichael, setIsExportingBillsMichael] = useState(false);
   const [isExportingBillsMarine, setIsExportingBillsMarine] = useState(false);
   const [isExportingBillsFatou, setIsExportingBillsFatou] = useState(false);

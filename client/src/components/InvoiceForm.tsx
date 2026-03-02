@@ -759,6 +759,8 @@ export function InvoiceForm({
                         <SelectItem value="Wave Business">Wave Business</SelectItem>
                         <SelectItem value="Espèces">Espèces</SelectItem>
                         <SelectItem value="Perso remboursé par Wave Business">Perso remboursé par Wave Business</SelectItem>
+                        <SelectItem value="Chèque">Chèque</SelectItem>
+                        <SelectItem value="CB">CB</SelectItem>
                       </>
                     )}
                   </SelectContent>
@@ -856,6 +858,12 @@ export function InvoiceForm({
                 </SelectItem>
                 <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness">
                   Perso remboursé par Wave Business
+                </SelectItem>
+                <SelectItem value="Chèque" data-testid="option-payment-Cheque">
+                  Chèque
+                </SelectItem>
+                <SelectItem value="CB" data-testid="option-payment-CB">
+                  CB
                 </SelectItem>
               </>
             )}
