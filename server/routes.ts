@@ -257,6 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const csv = csvHeader + csvRows.join("\n");
 
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="mes_factures_${userName.toLowerCase()}_${format(new Date(), "yyyy-MM-dd")}.csv"`);
       res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
@@ -1109,6 +1110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const csv = csvHeader + csvRows.join("\n");
 
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="factures_${format(new Date(), "yyyy-MM-dd")}.csv"`);
       res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
@@ -1191,6 +1193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const invoices = await storage.getInvoicesByUser("Michael");
       const csv = generateAxonautCSV(invoices);
 
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="axonaut_michael_${format(new Date(), "yyyy-MM-dd")}.csv"`);
       res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
@@ -1206,6 +1209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const invoices = await storage.getInvoicesByUser("Marine");
       const csv = generateAxonautCSV(invoices);
 
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="axonaut_marine_${format(new Date(), "yyyy-MM-dd")}.csv"`);
       res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
@@ -1221,6 +1225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const invoices = await storage.getInvoicesByUser("Fatou");
       const csv = generateAxonautCSV(invoices);
 
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="axonaut_fatou_${format(new Date(), "yyyy-MM-dd")}.csv"`);
       res.send("\ufeff" + csv); // UTF-8 BOM for Excel compatibility
@@ -1411,6 +1416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate CSV
       const csv = generateZohoExpenseCSV(result);
       
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.setHeader("X-Export-Count", result.length.toString());
@@ -1592,6 +1598,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate CSV
       const csv = generateZohoBillsCSV(result);
       
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.setHeader("X-Export-Count", result.length.toString());
@@ -1682,6 +1689,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dateLabel = format(endDate, "yyyyMM");
       const filename = `Nouveaux_Fournisseurs_BRS_${dateLabel}.csv`;
       
+      res.setHeader("Cache-Control", "no-store, no-cache");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.setHeader("X-Export-Count", result.length.toString());
