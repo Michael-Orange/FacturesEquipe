@@ -1,10 +1,11 @@
 import { db } from "./db";
-import { userTokens, suppliers, projects, adminConfig } from "@shared/schema";
+import { userTokens, suppliers, projects, adminConfig, paymentMethodsMapping } from "@shared/schema";
 import * as fs from "fs";
 import * as path from "path";
 import Papa from "papaparse";
 import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
+import { eq } from "drizzle-orm";
 
 interface SupplierCSV {
   societe: string;
@@ -17,6 +18,38 @@ interface ProjectCSV {
   "Début": string;
 }
 
+async function applyPaymentMappingMigrations() {
+  // Update zoho_name values to match new Zoho Books account names
+  const updates = [
+    { oldName: "Banques - autres (Wave Business Principal)", newName: "Wave Business Principal" },
+    { oldName: "Banques - autres (Wave Business Caisse)", newName: "Wave Business Caisse" },
+    { oldName: "Caisse en monnaie nationale", newName: "Caisse Espèces Shift Climat" },
+    { oldName: "Caisse - Fatou", newName: "Caisse Espèces Fatou" },
+  ];
+
+  for (const { oldName, newName } of updates) {
+    await db
+      .update(paymentMethodsMapping)
+      .set({ zohoName: newName })
+      .where(eq(paymentMethodsMapping.zohoName, oldName));
+  }
+
+  // Insert Wave/Espèces de Fatou row if it doesn't exist
+  const existing = await db
+    .select()
+    .from(paymentMethodsMapping)
+    .where(eq(paymentMethodsMapping.appName, "Wave/Espèces de Fatou"))
+    .limit(1);
+
+  if (existing.length === 0) {
+    await db.insert(paymentMethodsMapping).values({
+      appName: "Wave/Espèces de Fatou",
+      zohoName: "Caisse Espèces Fatou",
+    });
+    console.log("✓ Inserted Wave/Espèces de Fatou payment mapping");
+  }
+}
+
 async function seed() {
   console.log("🌱 Starting database seeding...");
 
@@ -26,6 +59,9 @@ async function seed() {
     const existingSuppliers = await db.select().from(suppliers).limit(1);
     const existingProjects = await db.select().from(projects).limit(1);
     
+    // Always apply payment method migrations (runs on every startup)
+    await applyPaymentMappingMigrations();
+
     if (existingTokens.length > 0 && existingSuppliers.length > 0 && existingProjects.length > 0) {
       console.log("✓ Database already seeded");
       
