@@ -23,19 +23,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface AdminDashboardProps {
   onExportCSV: () => Promise<void>;
-  onExportAxonautMichael: () => Promise<void>;
-  onExportAxonautMarine: () => Promise<void>;
-  onExportAxonautFatou: () => Promise<void>;
   onResetDatabase: () => Promise<void>;
   onLogout: () => void;
 }
 
-export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAxonautMarine, onExportAxonautFatou, onResetDatabase, onLogout }: AdminDashboardProps) {
+export function AdminDashboard({ onExportCSV, onResetDatabase, onLogout }: AdminDashboardProps) {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [isExportingAxonautMichael, setIsExportingAxonautMichael] = useState(false);
-  const [isExportingAxonautMarine, setIsExportingAxonautMarine] = useState(false);
-  const [isExportingAxonautFatou, setIsExportingAxonautFatou] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const { toast } = useToast();
   
@@ -74,63 +68,6 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
       });
     } finally {
       setIsExporting(false);
-    }
-  };
-
-  const handleExportAxonautMichael = async () => {
-    setIsExportingAxonautMichael(true);
-    try {
-      await onExportAxonautMichael();
-      toast({
-        title: "Export Axonaut Michael réussi",
-        description: "Le fichier d'export Axonaut pour Michael a été téléchargé",
-      });
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible d'exporter les données Axonaut pour Michael",
-        variant: "destructive",
-      });
-    } finally {
-      setIsExportingAxonautMichael(false);
-    }
-  };
-
-  const handleExportAxonautMarine = async () => {
-    setIsExportingAxonautMarine(true);
-    try {
-      await onExportAxonautMarine();
-      toast({
-        title: "Export Axonaut Marine réussi",
-        description: "Le fichier d'export Axonaut pour Marine a été téléchargé",
-      });
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible d'exporter les données Axonaut pour Marine",
-        variant: "destructive",
-      });
-    } finally {
-      setIsExportingAxonautMarine(false);
-    }
-  };
-
-  const handleExportAxonautFatou = async () => {
-    setIsExportingAxonautFatou(true);
-    try {
-      await onExportAxonautFatou();
-      toast({
-        title: "Export Axonaut Fatou réussi",
-        description: "Le fichier d'export Axonaut pour Fatou a été téléchargé",
-      });
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible d'exporter les données Axonaut pour Fatou",
-        variant: "destructive",
-      });
-    } finally {
-      setIsExportingAxonautFatou(false);
     }
   };
 
@@ -432,36 +369,6 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
               <Download className="h-5 w-5 mr-2" />
               {isExporting ? "Export en cours..." : "Exporter en CSV"}
             </Button>
-            <Button
-              onClick={handleExportAxonautMichael}
-              disabled={isExportingAxonautMichael}
-              variant="secondary"
-              className="w-full h-12"
-              data-testid="button-export-axonaut-michael"
-            >
-              <Download className="h-5 w-5 mr-2" />
-              {isExportingAxonautMichael ? "Export en cours..." : "Axonaut - Michael"}
-            </Button>
-            <Button
-              onClick={handleExportAxonautMarine}
-              disabled={isExportingAxonautMarine}
-              variant="secondary"
-              className="w-full h-12"
-              data-testid="button-export-axonaut-marine"
-            >
-              <Download className="h-5 w-5 mr-2" />
-              {isExportingAxonautMarine ? "Export en cours..." : "Axonaut - Marine"}
-            </Button>
-            <Button
-              onClick={handleExportAxonautFatou}
-              disabled={isExportingAxonautFatou}
-              variant="secondary"
-              className="w-full h-12"
-              data-testid="button-export-axonaut-fatou"
-            >
-              <Download className="h-5 w-5 mr-2" />
-              {isExportingAxonautFatou ? "Export en cours..." : "Axonaut - Fatou"}
-            </Button>
           </CardContent>
         </Card>
 
@@ -685,10 +592,6 @@ export function AdminDashboard({ onExportCSV, onExportAxonautMichael, onExportAx
           <div className="flex justify-between py-2 border-b">
             <span className="text-muted-foreground">Export CSV</span>
             <span className="font-medium">Télécharge toutes les factures de tous les utilisateurs</span>
-          </div>
-          <div className="flex justify-between py-2 border-b">
-            <span className="text-muted-foreground">Export Axonaut</span>
-            <span className="font-medium">Export formaté pour import dans Axonaut</span>
           </div>
           <div className="flex justify-between py-2 border-b">
             <span className="text-muted-foreground">Export Zoho Dépenses</span>
