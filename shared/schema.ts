@@ -28,6 +28,7 @@ export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   number: text("number").notNull().unique(),
   name: text("name").notNull(),
+  clientName: text("client_name"),
   startDate: text("start_date"),
   isCompleted: boolean("is_completed").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),

@@ -55,6 +55,12 @@ async function applyPaymentMappingMigrations() {
   }
 }
 
+async function applyProjectClientNameMigration() {
+  await db.execute(sql.raw(`
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_name TEXT
+  `));
+}
+
 async function applySupplierCreatedByMigration() {
   // Step 1: Add the column if it doesn't exist yet (for production environments)
   await db.execute(sql.raw(`
@@ -93,6 +99,7 @@ async function seed() {
     // Always apply migrations (runs on every startup)
     await applyPaymentMappingMigrations();
     await applySupplierCreatedByMigration();
+    await applyProjectClientNameMigration();
 
     if (existingTokens.length > 0 && existingSuppliers.length > 0 && existingProjects.length > 0) {
       console.log("✓ Database already seeded");

@@ -1855,7 +1855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new project (admin protected)
   app.post("/api/admin/projects", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
-      const { number, name, startDate } = req.body;
+      const { number, name, startDate, clientName } = req.body;
       if (!number?.trim() || !name?.trim()) {
         return res.status(400).json({ message: "Le numéro et le nom du projet sont requis" });
       }
@@ -1866,6 +1866,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [created] = await db.insert(projects).values({
         number: number.trim(),
         name: name.trim(),
+        clientName: clientName?.trim() || null,
         startDate: startDate?.trim() || null,
       }).returning();
       res.status(201).json(created);
@@ -1875,22 +1876,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Rename a project (admin protected)
+  // Update a project name and/or client name (admin protected)
   app.patch("/api/admin/projects/:id", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { name } = req.body;
-      if (!name?.trim()) {
-        return res.status(400).json({ message: "Le nom du projet est requis" });
+      const { name, clientName } = req.body;
+      if (!name?.trim() && clientName === undefined) {
+        return res.status(400).json({ message: "Au moins un champ à modifier est requis" });
       }
       const project = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
       if (!project.length) {
         return res.status(404).json({ message: "Projet introuvable" });
       }
-      const [updated] = await db.update(projects).set({ name: name.trim() }).where(eq(projects.id, id)).returning();
+      const updateData: Record<string, any> = {};
+      if (name?.trim()) updateData.name = name.trim();
+      if (clientName !== undefined) updateData.clientName = clientName?.trim() || null;
+      const [updated] = await db.update(projects).set(updateData).where(eq(projects.id, id)).returning();
       res.json(updated);
     } catch (error) {
-      console.error("Error renaming project:", error);
+      console.error("Error updating project:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

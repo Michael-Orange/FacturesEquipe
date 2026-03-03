@@ -653,13 +653,119 @@ interface Project {
   id: string;
   number: string;
   name: string;
+  clientName?: string | null;
   isCompleted: boolean | null;
+}
+
+function ProjectRow({
+  project,
+  editingProjectId,
+  editingName,
+  editingClientName,
+  setEditingName,
+  setEditingClientName,
+  setEditingProjectId,
+  renameMutation,
+  toggleMutation,
+}: {
+  project: Project;
+  editingProjectId: string | null;
+  editingName: string;
+  editingClientName: string;
+  setEditingName: (v: string) => void;
+  setEditingClientName: (v: string) => void;
+  setEditingProjectId: (v: string | null) => void;
+  renameMutation: any;
+  toggleMutation: any;
+}) {
+  const isEditing = editingProjectId === project.id;
+  return (
+    <div
+      className="flex items-center justify-between gap-2 py-2 px-3 rounded-md hover-elevate"
+      data-testid={`project-row-${project.id}`}
+    >
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <span className="text-sm text-muted-foreground shrink-0">{project.number} -</span>
+        {isEditing ? (
+          <form
+            className="flex items-center gap-1 flex-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (editingName.trim()) {
+                renameMutation.mutate({ id: project.id, name: editingName, clientName: editingClientName });
+              }
+            }}
+          >
+            <div className="flex flex-col gap-1 flex-1">
+              <Input
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                className="h-7 text-sm"
+                autoFocus
+                placeholder="Nom du projet"
+                data-testid={`input-rename-project-${project.id}`}
+              />
+              <Input
+                value={editingClientName}
+                onChange={(e) => setEditingClientName(e.target.value)}
+                className="h-7 text-sm"
+                placeholder="Nom du client (optionnel)"
+                data-testid={`input-client-name-project-${project.id}`}
+              />
+            </div>
+            <Button size="icon" type="submit" variant="ghost" disabled={renameMutation.isPending} data-testid={`button-save-rename-${project.id}`}>
+              <Check className="h-4 w-4 text-green-600" />
+            </Button>
+            <Button size="icon" type="button" variant="ghost" onClick={() => { setEditingProjectId(null); setEditingName(""); setEditingClientName(""); }} data-testid={`button-cancel-rename-${project.id}`}>
+              <X className="h-4 w-4 text-muted-foreground" />
+            </Button>
+          </form>
+        ) : (
+          <div className="flex-1 min-w-0">
+            <span className={`text-sm block ${project.isCompleted ? "text-muted-foreground line-through" : ""}`}>
+              {project.name}
+            </span>
+            {project.clientName && (
+              <span className="text-xs text-muted-foreground block">{project.clientName}</span>
+            )}
+          </div>
+        )}
+        {!isEditing && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="shrink-0 h-6 w-6 opacity-50 hover:opacity-100"
+            onClick={() => { setEditingProjectId(project.id); setEditingName(project.name); setEditingClientName(project.clientName || ""); }}
+            data-testid={`button-edit-project-${project.id}`}
+          >
+            <Pencil className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+      {!isEditing && (
+        <Button
+          size="sm"
+          variant={project.isCompleted ? "secondary" : "outline"}
+          onClick={() => toggleMutation.mutate(project.id)}
+          disabled={toggleMutation.isPending}
+          data-testid={`button-toggle-project-${project.id}`}
+        >
+          {project.isCompleted ? (
+            <><CheckCircle2 className="h-4 w-4 mr-1" />Terminé</>
+          ) : (
+            <><Circle className="h-4 w-4 mr-1" />Actif</>
+          )}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 function ProjectManagement() {
   const { toast } = useToast();
   const [newNumber, setNewNumber] = useState("");
   const [newName, setNewName] = useState("");
+  const [newClientName, setNewClientName] = useState("");
   const [newStartDate, setNewStartDate] = useState("");
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
@@ -671,6 +777,7 @@ function ProjectManagement() {
       const res = await apiRequest("POST", "/api/admin/projects", {
         number: newNumber,
         name: newName,
+        clientName: newClientName || undefined,
         startDate: newStartDate || undefined,
       });
       return res.json();
@@ -680,6 +787,7 @@ function ProjectManagement() {
       toast({ title: "Projet créé", description: `${newNumber} - ${newName}` });
       setNewNumber("");
       setNewName("");
+      setNewClientName("");
       setNewStartDate("");
     },
     onError: async (error: any) => {
@@ -696,20 +804,22 @@ function ProjectManagement() {
 
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingClientName, setEditingClientName] = useState("");
 
   const renameMutation = useMutation({
-    mutationFn: async ({ id, name }: { id: string; name: string }) => {
-      const res = await apiRequest("PATCH", `/api/admin/projects/${id}`, { name });
+    mutationFn: async ({ id, name, clientName }: { id: string; name: string; clientName: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/projects/${id}`, { name, clientName: clientName || null });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-      toast({ title: "Projet renommé" });
+      toast({ title: "Projet mis à jour" });
       setEditingProjectId(null);
       setEditingName("");
+      setEditingClientName("");
     },
     onError: () => {
-      toast({ title: "Erreur", description: "Impossible de renommer le projet", variant: "destructive" });
+      toast({ title: "Erreur", description: "Impossible de modifier le projet", variant: "destructive" });
     },
   });
 
@@ -731,6 +841,8 @@ function ProjectManagement() {
   const allSorted = [...projects].sort((a, b) => b.number.localeCompare(a.number));
   const activeProjects = allSorted.filter((p) => !p.isCompleted);
   const completedProjects = allSorted.filter((p) => p.isCompleted);
+
+  const rowProps = { editingProjectId, editingName, editingClientName, setEditingName, setEditingClientName, setEditingProjectId, renameMutation, toggleMutation };
 
   return (
     <Card>
@@ -762,6 +874,15 @@ function ProjectManagement() {
               data-testid="input-new-project-name"
             />
           </div>
+          <div className="flex flex-col gap-1 flex-1 min-w-32">
+            <Label className="text-xs text-muted-foreground">Nom du client (optionnel)</Label>
+            <Input
+              placeholder="Nom du client"
+              value={newClientName}
+              onChange={(e) => setNewClientName(e.target.value)}
+              data-testid="input-new-project-client-name"
+            />
+          </div>
           <div className="flex flex-col gap-1">
             <Label className="text-xs text-muted-foreground">Date de début (optionnel)</Label>
             <Input
@@ -785,74 +906,7 @@ function ProjectManagement() {
         ) : (
           <div className="space-y-1">
             {activeProjects.map((project) => (
-              <div
-                key={project.id}
-                className="flex items-center justify-between gap-2 py-2 px-3 rounded-md hover-elevate"
-                data-testid={`project-row-${project.id}`}
-              >
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground shrink-0">{project.number} -</span>
-                  {editingProjectId === project.id ? (
-                    <form
-                      className="flex items-center gap-1 flex-1"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (editingName.trim()) renameMutation.mutate({ id: project.id, name: editingName });
-                      }}
-                    >
-                      <Input
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        className="h-7 text-sm flex-1"
-                        autoFocus
-                        data-testid={`input-rename-project-${project.id}`}
-                      />
-                      <Button size="icon" type="submit" variant="ghost" disabled={renameMutation.isPending} data-testid={`button-save-rename-${project.id}`}>
-                        <Check className="h-4 w-4 text-green-600" />
-                      </Button>
-                      <Button size="icon" type="button" variant="ghost" onClick={() => { setEditingProjectId(null); setEditingName(""); }} data-testid={`button-cancel-rename-${project.id}`}>
-                        <X className="h-4 w-4 text-muted-foreground" />
-                      </Button>
-                    </form>
-                  ) : (
-                    <span className={`text-sm flex-1 ${project.isCompleted ? "text-muted-foreground line-through" : ""}`}>
-                      {project.name}
-                    </span>
-                  )}
-                  {editingProjectId !== project.id && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="shrink-0 h-6 w-6 opacity-50 hover:opacity-100"
-                      onClick={() => { setEditingProjectId(project.id); setEditingName(project.name); }}
-                      data-testid={`button-edit-project-${project.id}`}
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
-                {editingProjectId !== project.id && (
-                  <Button
-                    size="sm"
-                    variant={project.isCompleted ? "secondary" : "outline"}
-                    onClick={() => toggleMutation.mutate(project.id)}
-                    disabled={toggleMutation.isPending}
-                    data-testid={`button-toggle-project-${project.id}`}
-                  >
-                    {project.isCompleted ? (
-                      <>
-                        <CheckCircle2 className="h-4 w-4 mr-1" />
-                        Terminé
-                      </>
-                    ) : (
-                      <>
-                        <Circle className="h-4 w-4 mr-1" />
-                        Actif
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
+              <ProjectRow key={project.id} project={project} {...rowProps} />
             ))}
 
             {completedProjects.length > 0 && (
@@ -872,65 +926,7 @@ function ProjectManagement() {
                 {showCompleted && (
                   <div className="space-y-1 mt-1">
                     {completedProjects.map((project) => (
-                      <div
-                        key={project.id}
-                        className="flex items-center justify-between gap-2 py-2 px-3 rounded-md hover-elevate"
-                        data-testid={`project-row-${project.id}`}
-                      >
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <span className="text-sm text-muted-foreground shrink-0">{project.number} -</span>
-                          {editingProjectId === project.id ? (
-                            <form
-                              className="flex items-center gap-1 flex-1"
-                              onSubmit={(e) => {
-                                e.preventDefault();
-                                if (editingName.trim()) renameMutation.mutate({ id: project.id, name: editingName });
-                              }}
-                            >
-                              <Input
-                                value={editingName}
-                                onChange={(e) => setEditingName(e.target.value)}
-                                className="h-7 text-sm flex-1"
-                                autoFocus
-                                data-testid={`input-rename-project-${project.id}`}
-                              />
-                              <Button size="icon" type="submit" variant="ghost" disabled={renameMutation.isPending} data-testid={`button-save-rename-${project.id}`}>
-                                <Check className="h-4 w-4 text-green-600" />
-                              </Button>
-                              <Button size="icon" type="button" variant="ghost" onClick={() => { setEditingProjectId(null); setEditingName(""); }} data-testid={`button-cancel-rename-${project.id}`}>
-                                <X className="h-4 w-4 text-muted-foreground" />
-                              </Button>
-                            </form>
-                          ) : (
-                            <span className="text-sm flex-1 text-muted-foreground line-through">
-                              {project.name}
-                            </span>
-                          )}
-                          {editingProjectId !== project.id && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="shrink-0 h-6 w-6 opacity-50 hover:opacity-100"
-                              onClick={() => { setEditingProjectId(project.id); setEditingName(project.name); }}
-                              data-testid={`button-edit-project-${project.id}`}
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                        {editingProjectId !== project.id && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => toggleMutation.mutate(project.id)}
-                            disabled={toggleMutation.isPending}
-                            data-testid={`button-toggle-project-${project.id}`}
-                          >
-                            <CheckCircle2 className="h-4 w-4 mr-1" />
-                            Terminé
-                          </Button>
-                        )}
-                      </div>
+                      <ProjectRow key={project.id} project={project} {...rowProps} />
                     ))}
                   </div>
                 )}
