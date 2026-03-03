@@ -658,10 +658,41 @@ interface Project {
 
 function ProjectManagement() {
   const { toast } = useToast();
-  
+  const [newNumber, setNewNumber] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newStartDate, setNewStartDate] = useState("");
+
   const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
   });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/projects", {
+        number: newNumber,
+        name: newName,
+        startDate: newStartDate || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Projet créé", description: `${newNumber} - ${newName}` });
+      setNewNumber("");
+      setNewName("");
+      setNewStartDate("");
+    },
+    onError: async (error: any) => {
+      const msg = error?.message || "Erreur lors de la création du projet";
+      toast({ title: "Erreur", description: msg.includes("409") ? "Ce numéro de projet existe déjà" : msg, variant: "destructive" });
+    },
+  });
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNumber.trim() || !newName.trim()) return;
+    createMutation.mutate();
+  };
 
   const toggleMutation = useMutation({
     mutationFn: async (projectId: string) => {
@@ -688,7 +719,45 @@ function ProjectManagement() {
         </CardTitle>
         <CardDescription>Marquer les projets comme terminés pour les masquer du menu déroulant</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <form onSubmit={handleCreate} className="flex flex-wrap gap-2 items-end pb-4 border-b">
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">Numéro</Label>
+            <Input
+              placeholder="ex: 2026-03"
+              value={newNumber}
+              onChange={(e) => setNewNumber(e.target.value)}
+              className="w-32"
+              data-testid="input-new-project-number"
+            />
+          </div>
+          <div className="flex flex-col gap-1 flex-1 min-w-40">
+            <Label className="text-xs text-muted-foreground">Nom du projet</Label>
+            <Input
+              placeholder="Nom du projet"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              data-testid="input-new-project-name"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">Date de début (optionnel)</Label>
+            <Input
+              type="date"
+              value={newStartDate}
+              onChange={(e) => setNewStartDate(e.target.value)}
+              className="w-40"
+              data-testid="input-new-project-start-date"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={createMutation.isPending || !newNumber.trim() || !newName.trim()}
+            data-testid="button-create-project"
+          >
+            {createMutation.isPending ? "Création..." : "Ajouter"}
+          </Button>
+        </form>
         {isLoading ? (
           <p className="text-muted-foreground text-sm">Chargement...</p>
         ) : (

@@ -1843,6 +1843,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create new project (admin protected)
+  app.post("/api/admin/projects", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const { number, name, startDate } = req.body;
+      if (!number?.trim() || !name?.trim()) {
+        return res.status(400).json({ message: "Le numéro et le nom du projet sont requis" });
+      }
+      const existing = await db.select().from(projects).where(eq(projects.number, number.trim())).limit(1);
+      if (existing.length > 0) {
+        return res.status(409).json({ message: "Un projet avec ce numéro existe déjà" });
+      }
+      const [created] = await db.insert(projects).values({
+        number: number.trim(),
+        name: name.trim(),
+        startDate: startDate?.trim() || null,
+      }).returning();
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("Error creating project:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Toggle project completion status (admin protected)
   app.put("/api/admin/projects/:id/toggle-completed", verifyAdminAuth, async (req: Request, res: Response) => {
     try {
