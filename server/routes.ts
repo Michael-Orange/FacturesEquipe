@@ -1220,7 +1220,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taxPercentage,                        // Tax Percentage
         isInclusiveTax,                       // Is Inclusive Tax
         "False",                              // Is Billable
-        "",                                   // Customer Name
+        escapeCSV(exp.projectClientName || ""), // Customer Name
         reference,                            // Reference#
         "",                                   // Mileage Rate
         "",                                   // Distance
@@ -1288,6 +1288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           invoiceNumber: invoices.invoiceNumber,
           projectId: invoices.projectId,
           projectName: projects.name,
+          projectClientName: projects.clientName,
           categoryId: invoices.categoryId,
           categoryAccountName: categories.accountName,
           categoryAccountCode: categories.accountCode,
@@ -1410,7 +1411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tdsPercentage,                        // TDS_Percentage (5 if BRS)
         "",                                   // Vendor Notes
         "",                                   // Terms & Conditions
-        "",                                   // Customer Name
+        escapeCSV(bill.projectClientName || ""), // Customer Name
         escapeCSV(projectName),               // Project Name
         escapeCSV(tags),                      // Tags (MPP, RD, Structure)
         "goods",                              // Item Type
@@ -1472,6 +1473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           invoiceNumber: invoices.invoiceNumber,
           projectId: invoices.projectId,
           projectName: projects.name,
+          projectClientName: projects.clientName,
           categoryId: invoices.categoryId,
           categoryAccountName: categories.accountName,
           categoryAccountCode: categories.accountCode,
