@@ -48,7 +48,7 @@ export function ProjectSelect({ projects, value, onChange, disabled = false }: P
   return (
     <div className="space-y-2">
       <Label htmlFor="project" className={`text-base font-medium ${disabled ? "opacity-50" : ""}`}>
-        Projet/Opération
+        Projet/Opération - ne rien mettre si aucun projet applicable
       </Label>
       <Select value={value} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger
