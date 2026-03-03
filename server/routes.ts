@@ -7,7 +7,7 @@ import { storage, generateExpenseNumber } from "./storage";
 import { db } from "./db";
 import { uploadFileToDrive, deleteFileFromDrive, downloadFileFromDrive, archiveUserFiles, getOrCreateSubfolder } from "./integrations/google-drive";
 import { sendInvoiceConfirmation, sendPaymentConfirmation } from "./integrations/resend";
-import { insertInvoiceSchema, insertSupplierSchema, insertPaymentSchema, invoices, payments, InvoiceWithDetails, InvoiceWithPayments, paymentMethodsMapping, categories, suppliers, projects } from "@shared/schema";
+import { insertInvoiceSchema, insertSupplierSchema, insertPaymentSchema, invoices, payments, InvoiceWithDetails, InvoiceWithPayments, paymentMethodsMapping, categories, suppliers, projects, userTokens } from "@shared/schema";
 import { isNull, eq, and, gte, lte, desc, asc, count, sql } from "drizzle-orm";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
