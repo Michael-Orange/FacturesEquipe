@@ -1524,10 +1524,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .select({
           supplierName: suppliers.name,
           supplierCreatedAt: suppliers.createdAt,
+          creatorName: userTokens.name,
           brsInvoiceCount: count(invoices.id),
         })
         .from(suppliers)
         .innerJoin(invoices, eq(invoices.supplierId, suppliers.id))
+        .leftJoin(userTokens, eq(suppliers.createdBy, userTokens.id))
         .where(
           and(
             gte(suppliers.createdAt, startDate),
@@ -1538,7 +1540,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             isNull(invoices.archive)
           )
         )
-        .groupBy(suppliers.id, suppliers.name, suppliers.createdAt)
+        .groupBy(suppliers.id, suppliers.name, suppliers.createdAt, userTokens.name)
         .orderBy(asc(suppliers.createdAt));
       
       // If no suppliers found
@@ -1558,14 +1560,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return val;
       };
       
-      // Generate CSV with 3 columns: Nom Fournisseur, Date Création, Nombre Factures BRS
+      // Generate CSV with 4 columns: Nom Fournisseur, Date Création, Créé par, Nombre Factures BRS
       // Use comma separator per spec
-      const csvHeader = "Nom Fournisseur,Date Création,Nombre Factures BRS\n";
+      const csvHeader = "Nom Fournisseur,Date Création,Créé par,Nombre Factures BRS\n";
       const csvRows = result.map(row => {
         const supplierName = escapeCSV(row.supplierName || "");
         const createdDate = row.supplierCreatedAt ? format(new Date(row.supplierCreatedAt), "dd/MM/yyyy") : "";
+        const creatorName = escapeCSV(row.creatorName || "");
         const invoiceCount = String(row.brsInvoiceCount);
-        return `${supplierName},${createdDate},${invoiceCount}`;
+        return `${supplierName},${createdDate},${creatorName},${invoiceCount}`;
       }).join("\n");
       
       const csv = csvHeader + csvRows;
