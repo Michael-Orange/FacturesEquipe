@@ -358,6 +358,7 @@ export function AdminConsolidatedView() {
                   <TableHead className="font-semibold">Type</TableHead>
                   <TableHead className="font-semibold">Fournisseur</TableHead>
                   <TableHead className="font-semibold">Catégorie</TableHead>
+                  <TableHead className="font-semibold">Projet</TableHead>
                   <TableHead className="font-semibold text-right">Montant TTC</TableHead>
                   <TableHead className="font-semibold text-right">Montant HT</TableHead>
                   <TableHead className="font-semibold text-right">Brut BRS</TableHead>
@@ -384,6 +385,9 @@ export function AdminConsolidatedView() {
                     </TableCell>
                     <TableCell className="max-w-[120px] truncate" title={invoice.categoryAppName || invoice.category}>
                       {invoice.categoryAppName || invoice.category}
+                    </TableCell>
+                    <TableCell className="max-w-[140px] truncate text-sm text-muted-foreground" title={invoice.projectName || ""}>
+                      {invoice.projectName || "-"}
                     </TableCell>
                     <TableCell className="text-right font-medium whitespace-nowrap">
                       {formatAmount(invoice.amountDisplayTTC)} F
