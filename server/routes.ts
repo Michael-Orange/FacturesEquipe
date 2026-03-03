@@ -1184,12 +1184,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Reference# = invoice_number (DEP-XX-YYMM-XXX)
       const reference = exp.invoiceNumber || "";
       
-      // Project Name and Tags logic: MPP, RD, Structure go to Tags instead of Project Name
+      // Project Name and Tags logic: MPP, RD, Structure, Maintenance projets, Maintenance Véhicules go to Tags instead of Project Name
       const projectValue = exp.projectName || "";
+      const isTagProject = projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure" || projectValue === "Maintenance projets" || projectValue === "Maintenance Véhicules";
       let projectName = "";
       let tags = "";
       
-      if (projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure") {
+      if (isTagProject) {
         tags = projectValue;  // Va dans Tags
         projectName = "";     // Project Name reste vide
       } else {
@@ -1204,6 +1205,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         return val || "";
       };
+
+      const customerName = isTagProject ? "" : escapeCSV(exp.projectClientName || "");
 
       return [
         entryNumber,                          // Entry Number
@@ -1220,7 +1223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taxPercentage,                        // Tax Percentage
         isInclusiveTax,                       // Is Inclusive Tax
         "False",                              // Is Billable
-        escapeCSV(exp.projectClientName || ""), // Customer Name
+        customerName,                         // Customer Name (vide si projet Tag)
         reference,                            // Reference#
         "",                                   // Mileage Rate
         "",                                   // Distance
@@ -1368,12 +1371,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tdsName = bill.hasBrs ? "BRS" : "";
       const tdsPercentage = bill.hasBrs ? "5" : "";
       
-      // Project Name and Tags logic: MPP, RD, Structure go to Tags instead of Project Name
+      // Project Name and Tags logic: MPP, RD, Structure, Maintenance projets, Maintenance Véhicules go to Tags instead of Project Name
       const projectValue = bill.projectName || "";
+      const isTagProject = projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure" || projectValue === "Maintenance projets" || projectValue === "Maintenance Véhicules";
       let projectName = "";
       let tags = "";
       
-      if (projectValue === "MPP" || projectValue === "RD" || projectValue === "Structure") {
+      if (isTagProject) {
         tags = projectValue;  // Va dans Tags
         projectName = "";     // Project Name reste vide
       } else {
@@ -1388,6 +1392,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         return val || "";
       };
+
+      const customerName = isTagProject ? "" : escapeCSV(bill.projectClientName || "");
 
       return [
         billDate,                             // Bill Date
@@ -1411,7 +1417,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tdsPercentage,                        // TDS_Percentage (5 if BRS)
         "",                                   // Vendor Notes
         "",                                   // Terms & Conditions
-        escapeCSV(bill.projectClientName || ""), // Customer Name
+        customerName,                         // Customer Name (vide si projet Tag)
         escapeCSV(projectName),               // Project Name
         escapeCSV(tags),                      // Tags (MPP, RD, Structure)
         "goods",                              // Item Type
