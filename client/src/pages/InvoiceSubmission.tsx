@@ -44,7 +44,7 @@ export default function InvoiceSubmission() {
 
   const createSupplierMutation = useMutation({
     mutationFn: async (name: string) => {
-      return await apiRequest("POST", "/api/suppliers", { name });
+      return await apiRequest("POST", "/api/suppliers", { name, token });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });

@@ -20,6 +20,7 @@ export const suppliers = pgTable("suppliers", {
   total: decimal("total", { precision: 12, scale: 2 }).default("0"),
   isRegularSupplier: boolean("is_regular_supplier").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdBy: varchar("created_by").references(() => userTokens.id),
 });
 
 // Projects from CSV

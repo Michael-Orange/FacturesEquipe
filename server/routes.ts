@@ -86,7 +86,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create supplier
   app.post("/api/suppliers", async (req: Request, res: Response) => {
     try {
-      const parsed = insertSupplierSchema.safeParse(req.body);
+      const { token: userToken, ...bodyWithoutToken } = req.body;
+      const parsed = insertSupplierSchema.safeParse(bodyWithoutToken);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid supplier data", errors: parsed.error });
       }
@@ -97,7 +98,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "Supplier already exists" });
       }
 
-      const supplier = await storage.createSupplier(parsed.data);
+      // Look up creator by token
+      let createdBy: string | null = null;
+      if (userToken) {
+        const userRecord = await storage.getUserTokenByToken(userToken);
+        if (userRecord) createdBy = userRecord.id;
+      }
+
+      const supplier = await storage.createSupplier({ ...parsed.data, createdBy });
       res.status(201).json(supplier);
     } catch (error) {
       console.error("Error creating supplier:", error);
@@ -1520,28 +1528,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // - invoices.has_brs = true
       // - invoices.invoice_date between date_start and date_end
       // - NOT archived
-      const result = await db
-        .select({
-          supplierName: suppliers.name,
-          supplierCreatedAt: suppliers.createdAt,
-          creatorName: userTokens.name,
-          brsInvoiceCount: count(invoices.id),
-        })
-        .from(suppliers)
-        .innerJoin(invoices, eq(invoices.supplierId, suppliers.id))
-        .leftJoin(userTokens, eq(suppliers.createdBy, userTokens.id))
-        .where(
-          and(
-            gte(suppliers.createdAt, startDate),
-            eq(invoices.invoiceType, "supplier_invoice"),
-            eq(invoices.hasBrs, true),
-            gte(invoices.invoiceDate, startDate),
-            lte(invoices.invoiceDate, endDate),
-            isNull(invoices.archive)
-          )
-        )
-        .groupBy(suppliers.id, suppliers.name, suppliers.createdAt, userTokens.name)
-        .orderBy(asc(suppliers.createdAt));
+      // Use raw SQL to avoid Drizzle ORM GROUP BY limitations with LEFT JOIN
+      const rawResult = await db.execute(sql.raw(`
+        SELECT
+          s.name AS supplier_name,
+          s.created_at AS supplier_created_at,
+          ut.name AS creator_name,
+          COUNT(i.id)::int AS brs_invoice_count
+        FROM suppliers s
+        INNER JOIN invoices i ON i.supplier_id = s.id
+        LEFT JOIN user_tokens ut ON s.created_by = ut.id
+        WHERE s.created_at >= '${startDate.toISOString()}'
+          AND i.invoice_type = 'supplier_invoice'
+          AND i.has_brs = true
+          AND i.invoice_date >= '${startDate.toISOString()}'
+          AND i.invoice_date <= '${endDate.toISOString()}'
+          AND i.archive IS NULL
+        GROUP BY s.id, s.name, s.created_at, ut.name
+        ORDER BY s.created_at ASC
+      `));
+      const result = ((rawResult as any).rows || rawResult) as any[];
       
       // If no suppliers found
       if (result.length === 0) {
@@ -1563,11 +1569,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate CSV with 4 columns: Nom Fournisseur, Date Création, Créé par, Nombre Factures BRS
       // Use comma separator per spec
       const csvHeader = "Nom Fournisseur,Date Création,Créé par,Nombre Factures BRS\n";
-      const csvRows = result.map(row => {
-        const supplierName = escapeCSV(row.supplierName || "");
-        const createdDate = row.supplierCreatedAt ? format(new Date(row.supplierCreatedAt), "dd/MM/yyyy") : "";
-        const creatorName = escapeCSV(row.creatorName || "");
-        const invoiceCount = String(row.brsInvoiceCount);
+      const csvRows = result.map((row: any) => {
+        const supplierName = escapeCSV(row.supplier_name || "");
+        const createdDate = row.supplier_created_at ? format(new Date(row.supplier_created_at), "dd/MM/yyyy") : "";
+        const creatorName = escapeCSV(row.creator_name || "");
+        const invoiceCount = String(row.brs_invoice_count);
         return `${supplierName},${createdDate},${creatorName},${invoiceCount}`;
       }).join("\n");
       
