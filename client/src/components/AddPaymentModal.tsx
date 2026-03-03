@@ -56,7 +56,7 @@ export function AddPaymentModal({
     if (name === "fatou") {
       return [
         { value: "Wave Business Caisse", label: "Wave Business Caisse" },
-        { value: "Espèces", label: "Espèces" },
+        { value: "Wave/Espèces de Fatou", label: "Wave/Espèces de Fatou" },
         { value: "Perso remboursé par Wave Business", label: "Perso remboursé par Wave Business" },
         { value: "Chèque", label: "Chèque" },
       ];

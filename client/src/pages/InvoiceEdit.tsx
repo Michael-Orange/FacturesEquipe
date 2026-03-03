@@ -648,7 +648,9 @@ export default function InvoiceEdit() {
                   {isFatou ? (
                     <>
                       <SelectItem value="Wave Business Caisse">Wave Business Caisse</SelectItem>
-                      <SelectItem value="Espèces">Espèces</SelectItem>
+                      <SelectItem value="Wave/Espèces de Fatou">Wave/Espèces de Fatou</SelectItem>
+                      <SelectItem value="Perso remboursé par Wave Business">Perso remboursé par Wave Business</SelectItem>
+                      <SelectItem value="Chèque">Chèque</SelectItem>
                     </>
                   ) : canUseWaveBusiness ? (
                     <>
