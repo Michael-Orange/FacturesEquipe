@@ -57,6 +57,8 @@ export function AddPaymentModal({
       return [
         { value: "Wave Business Caisse", label: "Wave Business Caisse" },
         { value: "Espèces", label: "Espèces" },
+        { value: "Perso remboursé par Wave Business", label: "Perso remboursé par Wave Business" },
+        { value: "Chèque", label: "Chèque" },
       ];
     }
     return [

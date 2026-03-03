@@ -753,6 +753,8 @@ export function InvoiceForm({
                       <>
                         <SelectItem value="Wave Business Caisse">Wave Business Caisse</SelectItem>
                         <SelectItem value="Wave/Espèces de Fatou">Wave/Espèces de Fatou</SelectItem>
+                        <SelectItem value="Perso remboursé par Wave Business">Perso remboursé par Wave Business</SelectItem>
+                        <SelectItem value="Chèque">Chèque</SelectItem>
                       </>
                     ) : (
                       <>
@@ -846,6 +848,12 @@ export function InvoiceForm({
                 </SelectItem>
                 <SelectItem value="Wave/Espèces de Fatou" data-testid="option-payment-WaveEspecesFatou">
                   Wave/Espèces de Fatou
+                </SelectItem>
+                <SelectItem value="Perso remboursé par Wave Business" data-testid="option-payment-PersoWaveBusiness-fatou">
+                  Perso remboursé par Wave Business
+                </SelectItem>
+                <SelectItem value="Chèque" data-testid="option-payment-Cheque-fatou">
+                  Chèque
                 </SelectItem>
               </>
             ) : (
