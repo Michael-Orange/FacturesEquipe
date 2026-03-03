@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Archive, Lock, Database, Calendar, FileText, FolderOpen, CheckCircle2, Circle, Pencil, Check, X } from "lucide-react";
+import { Download, Archive, Lock, Database, Calendar, FileText, FolderOpen, CheckCircle2, Circle, Pencil, Check, X, ChevronDown, ChevronUp } from "lucide-react";
 import { AdminConsolidatedView } from "./AdminConsolidatedView";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -727,7 +727,10 @@ function ProjectManagement() {
     },
   });
 
-  const sortedProjects = [...projects].sort((a, b) => b.number.localeCompare(a.number));
+  const [showCompleted, setShowCompleted] = useState(false);
+  const allSorted = [...projects].sort((a, b) => b.number.localeCompare(a.number));
+  const activeProjects = allSorted.filter((p) => !p.isCompleted);
+  const completedProjects = allSorted.filter((p) => p.isCompleted);
 
   return (
     <Card>
@@ -781,7 +784,7 @@ function ProjectManagement() {
           <p className="text-muted-foreground text-sm">Chargement...</p>
         ) : (
           <div className="space-y-1">
-            {sortedProjects.map((project) => (
+            {activeProjects.map((project) => (
               <div
                 key={project.id}
                 className="flex items-center justify-between gap-2 py-2 px-3 rounded-md hover-elevate"
@@ -851,6 +854,88 @@ function ProjectManagement() {
                 )}
               </div>
             ))}
+
+            {completedProjects.length > 0 && (
+              <div className="pt-2 mt-2 border-t">
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
+                  onClick={() => setShowCompleted((v) => !v)}
+                  data-testid="button-toggle-completed-projects"
+                >
+                  {showCompleted ? (
+                    <><ChevronUp className="h-4 w-4" />Masquer les projets terminés ({completedProjects.length})</>
+                  ) : (
+                    <><ChevronDown className="h-4 w-4" />Afficher les projets terminés ({completedProjects.length})</>
+                  )}
+                </button>
+                {showCompleted && (
+                  <div className="space-y-1 mt-1">
+                    {completedProjects.map((project) => (
+                      <div
+                        key={project.id}
+                        className="flex items-center justify-between gap-2 py-2 px-3 rounded-md hover-elevate"
+                        data-testid={`project-row-${project.id}`}
+                      >
+                        <div className="flex-1 min-w-0 flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground shrink-0">{project.number} -</span>
+                          {editingProjectId === project.id ? (
+                            <form
+                              className="flex items-center gap-1 flex-1"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                if (editingName.trim()) renameMutation.mutate({ id: project.id, name: editingName });
+                              }}
+                            >
+                              <Input
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                className="h-7 text-sm flex-1"
+                                autoFocus
+                                data-testid={`input-rename-project-${project.id}`}
+                              />
+                              <Button size="icon" type="submit" variant="ghost" disabled={renameMutation.isPending} data-testid={`button-save-rename-${project.id}`}>
+                                <Check className="h-4 w-4 text-green-600" />
+                              </Button>
+                              <Button size="icon" type="button" variant="ghost" onClick={() => { setEditingProjectId(null); setEditingName(""); }} data-testid={`button-cancel-rename-${project.id}`}>
+                                <X className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </form>
+                          ) : (
+                            <span className="text-sm flex-1 text-muted-foreground line-through">
+                              {project.name}
+                            </span>
+                          )}
+                          {editingProjectId !== project.id && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="shrink-0 h-6 w-6 opacity-50 hover:opacity-100"
+                              onClick={() => { setEditingProjectId(project.id); setEditingName(project.name); }}
+                              data-testid={`button-edit-project-${project.id}`}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                        {editingProjectId !== project.id && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => toggleMutation.mutate(project.id)}
+                            disabled={toggleMutation.isPending}
+                            data-testid={`button-toggle-project-${project.id}`}
+                          >
+                            <CheckCircle2 className="h-4 w-4 mr-1" />
+                            Terminé
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </CardContent>
