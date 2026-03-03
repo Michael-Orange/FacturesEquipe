@@ -5,7 +5,7 @@ import * as path from "path";
 import Papa from "papaparse";
 import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 interface SupplierCSV {
   societe: string;
@@ -55,6 +55,32 @@ async function applyPaymentMappingMigrations() {
   }
 }
 
+async function applySupplierCreatedByMigration() {
+  // Step 1: Add the column if it doesn't exist yet (for production environments)
+  await db.execute(sql.raw(`
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS created_by VARCHAR REFERENCES user_tokens(id)
+  `));
+
+  // Step 2: Backfill created_by for suppliers that have invoices but no creator set yet
+  // We attribute the first invoice submitter as the supplier creator
+  const updated = await db.execute(sql.raw(`
+    UPDATE suppliers s
+    SET created_by = ut.id
+    FROM user_tokens ut
+    WHERE s.created_by IS NULL
+      AND LOWER(ut.name) = LOWER((
+        SELECT i.user_name FROM invoices i
+        WHERE i.supplier_id = s.id
+        ORDER BY i.created_at ASC
+        LIMIT 1
+      ))
+  `));
+  const count = (updated as any).rowCount ?? (updated as any).count ?? 0;
+  if (count > 0) {
+    console.log(`✓ Backfilled created_by for ${count} suppliers`);
+  }
+}
+
 async function seed() {
   console.log("🌱 Starting database seeding...");
 
@@ -64,8 +90,9 @@ async function seed() {
     const existingSuppliers = await db.select().from(suppliers).limit(1);
     const existingProjects = await db.select().from(projects).limit(1);
     
-    // Always apply payment method migrations (runs on every startup)
+    // Always apply migrations (runs on every startup)
     await applyPaymentMappingMigrations();
+    await applySupplierCreatedByMigration();
 
     if (existingTokens.length > 0 && existingSuppliers.length > 0 && existingProjects.length > 0) {
       console.log("✓ Database already seeded");
