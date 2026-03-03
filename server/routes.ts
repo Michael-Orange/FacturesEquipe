@@ -1866,6 +1866,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Rename a project (admin protected)
+  app.patch("/api/admin/projects/:id", verifyAdminAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name } = req.body;
+      if (!name?.trim()) {
+        return res.status(400).json({ message: "Le nom du projet est requis" });
+      }
+      const project = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+      if (!project.length) {
+        return res.status(404).json({ message: "Projet introuvable" });
+      }
+      const [updated] = await db.update(projects).set({ name: name.trim() }).where(eq(projects.id, id)).returning();
+      res.json(updated);
+    } catch (error) {
+      console.error("Error renaming project:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Toggle project completion status (admin protected)
   app.put("/api/admin/projects/:id/toggle-completed", verifyAdminAuth, async (req: Request, res: Response) => {
     try {

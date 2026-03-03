@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, subMonths } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Download, Eye, Package, Receipt, CreditCard, Loader2, FileText } from "lucide-react";
+import { Download, Eye, Package, Receipt, CreditCard, Loader2, FileText, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,8 +79,13 @@ export function AdminConsolidatedView() {
   const { toast } = useToast();
   const [selectedUser, setSelectedUser] = useState<string>("all");
   const [selectedType, setSelectedType] = useState<string>("all");
-  const [dateStart, setDateStart] = useState<string>("");
-  const [dateEnd, setDateEnd] = useState<string>("");
+  const [dateStart, setDateStart] = useState<string>(
+    format(startOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd")
+  );
+  const [dateEnd, setDateEnd] = useState<string>(
+    format(endOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd")
+  );
+  const [tableExpanded, setTableExpanded] = useState(false);
   const [loadingDownload, setLoadingDownload] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<ConsolidatedInvoice | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -184,12 +189,18 @@ export function AdminConsolidatedView() {
     
     const status = invoice.paymentStatus || "unpaid";
     switch (status) {
-      case "paid":
-        return (
+      case "paid": {
+        const multiplePayments = invoice.payments && invoice.payments.length > 1;
+        return multiplePayments ? (
+          <Badge variant="default" className="bg-teal-600 hover:bg-teal-600 text-white">
+            Soldé
+          </Badge>
+        ) : (
           <Badge variant="default" className="bg-green-600 hover:bg-green-600 text-white">
             Payé
           </Badge>
         );
+      }
       case "partial":
         return (
           <Badge variant="default" className="bg-amber-500 hover:bg-amber-500 text-white">
@@ -242,10 +253,24 @@ export function AdminConsolidatedView() {
   return (
     <Card className="mb-8">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-xl text-primary">
-          <FileText className="h-5 w-5" />
-          Vue Consolidée - Factures des 2 derniers mois
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="flex items-center gap-2 text-xl text-primary">
+            <FileText className="h-5 w-5" />
+            Vue Consolidée - Factures des 2 derniers mois
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setTableExpanded((v) => !v)}
+            data-testid="button-toggle-table"
+          >
+            {tableExpanded ? (
+              <><ChevronUp className="h-4 w-4 mr-1" />Masquer les lignes</>
+            ) : (
+              <><ChevronDown className="h-4 w-4 mr-1" />Afficher les lignes</>
+            )}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="flex flex-wrap gap-4 mb-6">
@@ -303,7 +328,15 @@ export function AdminConsolidatedView() {
           </div>
         </div>
 
-        {isLoading ? (
+        {!tableExpanded && (
+          <p className="text-sm text-muted-foreground text-center py-2">
+            Cliquer sur "Afficher les lignes" pour voir les factures
+          </p>
+        )}
+
+        {tableExpanded && (
+          <>
+          {isLoading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
@@ -422,6 +455,8 @@ export function AdminConsolidatedView() {
               {invoices.length} facture{invoices.length > 1 ? "s" : ""} affichée{invoices.length > 1 ? "s" : ""}
             </div>
           </div>
+        )}
+          </>
         )}
 
         {selectedInvoice && (
