@@ -256,7 +256,7 @@ export function AdminConsolidatedView() {
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="flex items-center gap-2 text-xl text-primary">
             <FileText className="h-5 w-5" />
-            Vue Consolidée - Factures des 2 derniers mois
+            Vue Consolidée
           </CardTitle>
           <Button
             variant="outline"
