@@ -1,8 +1,15 @@
 import { defineConfig } from "drizzle-kit";
 
-const databaseUrl = process.env.NEW_NEON_DATABASE_URL || process.env.DATABASE_URL;
-
-if (!databaseUrl) {
+function buildConnectionUrl(): string {
+  const neonUrl = process.env.NEW_NEON_DATABASE_URL;
+  if (neonUrl) {
+    const unpooled = neonUrl.replace(/-pooler\./, '.');
+    const separator = unpooled.includes('?') ? '&' : '?';
+    return unpooled + separator + 'options=-csearch_path%3Dfacture';
+  }
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
   throw new Error("NEW_NEON_DATABASE_URL or DATABASE_URL must be set");
 }
 
@@ -11,6 +18,6 @@ export default defineConfig({
   schema: "./shared/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url: databaseUrl,
+    url: buildConnectionUrl(),
   },
 });
