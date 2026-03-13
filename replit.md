@@ -133,7 +133,14 @@ Preferred communication style: Simple, everyday language.
 
 ### Data Storage
 
-**Database Schema (PostgreSQL via Neon):**
+**Database Schema (PostgreSQL via Neon — schema `facture`):**
+
+**Database Configuration:**
+- Production data lives in `NEW_NEON_DATABASE_URL` (Neon `ep-flat-wave-ai8s9lqh-pooler`, us-east-1)
+- Data is stored in a custom PostgreSQL schema named `facture` (not `public`)
+- `server/db.ts` sets `search_path TO facture` on each connection when `NEW_NEON_DATABASE_URL` is defined
+- The `public` schema in the target contains a `users` table from another project (do not touch)
+- Previous databases (`NEON_DATABASE_URL` and local `DATABASE_URL`) contain only test data
 
 1. **user_tokens** - Access control tokens for three team members
    - Stores name, unique token, email, and Google Drive folder ID
