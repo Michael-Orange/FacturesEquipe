@@ -1,17 +1,31 @@
 #!/bin/bash
 set -e
 
-PROD_URL="postgresql://neondb_owner:npg_dixM3G6npQok@ep-frosty-bonus-ahq78f05.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require"
+if [ -z "$PROD_DATABASE_URL" ]; then
+  echo "ERROR: PROD_DATABASE_URL environment variable must be set"
+  exit 1
+fi
+if [ -z "$NEW_NEON_DATABASE_URL" ]; then
+  echo "ERROR: NEW_NEON_DATABASE_URL environment variable must be set"
+  exit 1
+fi
+
+PROD_URL="$PROD_DATABASE_URL"
 TARGET_URL="$NEW_NEON_DATABASE_URL"
 UNPOOLED_TARGET=$(echo "$TARGET_URL" | sed 's/-pooler\./\./')
-TARGET_WITH_SCHEMA="${UNPOOLED_TARGET}&options=-csearch_path%3Dfacture"
+
+if echo "$UNPOOLED_TARGET" | grep -q '?'; then
+  TARGET_WITH_SCHEMA="${UNPOOLED_TARGET}&options=-csearch_path%3Dfacture"
+else
+  TARGET_WITH_SCHEMA="${UNPOOLED_TARGET}?options=-csearch_path%3Dfacture"
+fi
 
 echo "============================================"
 echo "  Migration Verification: Source vs Target"
 echo "============================================"
 echo ""
-echo "Source: ep-frosty-bonus (real prod)"
-echo "Target: ep-flat-wave (schema: facture)"
+echo "Source: $(echo "$PROD_URL" | sed 's|.*@||' | cut -d'/' -f1)"
+echo "Target: $(echo "$TARGET_URL" | sed 's|.*@||' | cut -d'/' -f1) (schema: facture)"
 echo ""
 
 TABLES="user_tokens suppliers projects invoices payments categories admin_config payment_methods_mapping"
